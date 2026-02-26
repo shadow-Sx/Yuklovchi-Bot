@@ -3,7 +3,7 @@ import json
 import os
 
 TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = 123456789  # O'zingizning Telegram ID'ingizni yozing
+ADMIN_ID = 7797502113  # Sizning ID'ingiz
 
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 
@@ -28,12 +28,14 @@ def save_messages(data):
         json.dump(data, f, indent=4)
 
 
-# ---------------------- ADMIN PANEL ----------------------
+# ---------------------- START ----------------------
 
 @bot.message_handler(commands=['start'])
 def start(message):
     bot.reply_to(message, "Bot ishlamoqda.")
 
+
+# ---------------------- ADMIN PANEL ----------------------
 
 @bot.message_handler(commands=['admin'])
 def admin_panel(message):
@@ -54,7 +56,7 @@ def add_message_start(message):
     if message.from_user.id != ADMIN_ID:
         return
 
-    bot.send_message(message.chat.id, "Istalgan faylni yuboring (rasm, video, mp3, pdf va boshqalar).")
+    bot.send_message(message.chat.id, "Istalgan faylni yuboring (rasm, video, mp3, pdf, zip va boshqalar).")
 
 
 @bot.message_handler(content_types=[
@@ -88,84 +90,3 @@ def save_any_file(message):
         file_type = "voice"
 
     elif message.animation:
-        file_id = message.animation.file_id
-        file_type = "gif"
-
-    else:
-        bot.reply_to(message, "Bu fayl turi qo‘llab-quvvatlanmaydi.")
-        return
-
-    entry = {
-        "id": len(data) + 1,
-        "file_id": file_id,
-        "type": file_type
-    }
-
-    data.append(entry)
-    save_messages(data)
-
-    bot.reply_to(
-        message,
-        f"Fayl saqlandi!\n"
-        f"ID: <code>{entry['id']}</code>\n"
-        f"Fayl turi: <b>{file_type}</b>\n"
-        f"Havola: <code>{file_id}</code>"
-    )
-
-
-# ---------------------- HABAR YUBORISH ----------------------
-
-@bot.message_handler(func=lambda m: m.text == "📤 Habar Yuborish")
-def send_message_start(message):
-    if message.from_user.id != ADMIN_ID:
-        return
-
-    bot.send_message(message.chat.id, "Qaysi ID dagi faylni yuboramiz?\nID kiriting.")
-
-
-@bot.message_handler(func=lambda m: m.text.isdigit())
-def send_saved_media(message):
-    if message.from_user.id != ADMIN_ID:
-        return
-
-    msg_id = int(message.text)
-    data = load_messages()
-
-    item = next((x for x in data if x["id"] == msg_id), None)
-
-    if not item:
-        bot.send_message(message.chat.id, "Bunday ID topilmadi.")
-        return
-
-    t = item["type"]
-    f = item["file_id"]
-
-    if "photo" in t:
-        bot.send_photo(message.chat.id, f)
-    elif "video" in t:
-        bot.send_video(message.chat.id, f)
-    elif "audio" in t:
-        bot.send_audio(message.chat.id, f)
-    elif "voice" in t:
-        bot.send_voice(message.chat.id, f)
-    elif "gif" in t:
-        bot.send_animation(message.chat.id, f)
-    else:
-        bot.send_document(message.chat.id, f)
-
-    bot.send_message(message.chat.id, "Yuborildi!")
-
-
-# ---------------------- MAJBURI OBUNA ----------------------
-
-@bot.message_handler(func=lambda m: m.text == "📌 Majburi Obuna")
-def sub_settings(message):
-    if message.from_user.id != ADMIN_ID:
-        return
-
-    bot.send_message(message.chat.id, "Majburi obuna funksiyasi hali qo‘shilmagan.")
-
-
-# ---------------------- RUN ----------------------
-
-bot.infinity_polling()
