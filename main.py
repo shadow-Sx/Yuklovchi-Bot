@@ -112,9 +112,9 @@ def admin_buttons(message):
         bot.send_message(uid, "Admin paneldan chiqdingiz.", reply_markup=telebot.types.ReplyKeyboardRemove())
 
 # ==========================
-#   /start COMMAND
+#   /start (FAQAT ODDIY /start UCHUN)
 # ==========================
-@bot.message_handler(commands=['start'])
+@bot.message_handler(func=lambda m: m.text == "/start")
 def start(message):
     markup = InlineKeyboardMarkup()
     markup.add(
