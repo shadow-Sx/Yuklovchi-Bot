@@ -1,14 +1,20 @@
-import telebot
-import json
 import os
+import json
+import time
 import random
 import string
+import threading
+import requests
+import telebot
 from flask import Flask, request
 from telebot.types import (
     ReplyKeyboardMarkup, KeyboardButton,
     InlineKeyboardMarkup, InlineKeyboardButton
 )
 
+# ==========================
+#   TOKEN & SETTINGS
+# ==========================
 TOKEN = os.getenv("BOT_TOKEN")
 BOT_USERNAME = os.getenv("BOT_USERNAME")
 ADMIN_ID = 7797502113
@@ -23,7 +29,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Bot is running"
+    return "XAnimelarBot is running!"
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -31,6 +37,19 @@ def webhook():
     update = telebot.types.Update.de_json(json_data)
     bot.process_new_updates([update])
     return "OK", 200
+
+# ==========================
+#   SELF-PING (Render Free rejimi uxlamasin)
+# ==========================
+def keep_alive():
+    while True:
+        try:
+            requests.get("https://yuklovchi-bot-80ui.onrender.com")
+        except:
+            pass
+        time.sleep(600)  # 10 daqiqa
+
+threading.Thread(target=keep_alive).start()
 
 # ==========================
 #   JSON DATABASE
@@ -71,7 +90,7 @@ def admin_panel():
     return markup
 
 # ==========================
-#   /admin COMMAND
+#   /admin
 # ==========================
 @bot.message_handler(commands=['admin'])
 def admin_start(message):
@@ -142,7 +161,7 @@ def start_with_code(message):
                 return
 
             if item["type"] == "photo":
-                bot.send_photo(message.chat.chat.id, item["file_id"], caption=item.get("caption"))
+                bot.send_photo(message.chat.id, item["file_id"], caption=item.get("caption"))
                 return
 
             if item["type"] == "video":
@@ -216,7 +235,7 @@ def callback(call):
         )
 
 # ==========================
-#   CONTENT SAVING
+#   CONTENT SAVING (0.7s delay)
 # ==========================
 @bot.message_handler(content_types=['text', 'photo', 'video', 'document'])
 def save_content(message):
@@ -224,6 +243,8 @@ def save_content(message):
 
     if uid != ADMIN_ID or admin_state.get(uid) != "add_content":
         return
+
+    time.sleep(0.7)  # <<< MUHIM! Telegram bloklamasligi uchun
 
     content = {}
     code = generate_code()
@@ -264,7 +285,7 @@ def save_content(message):
     admin_state[uid] = None
 
 # ==========================
-#   RUN FLASK SERVER
+#   RUN SERVER
 # ==========================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
