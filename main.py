@@ -1,5 +1,4 @@
 import os
-import json
 import time
 import random
 import string
@@ -11,6 +10,8 @@ from telebot.types import (
     ReplyKeyboardMarkup, KeyboardButton,
     InlineKeyboardMarkup, InlineKeyboardButton
 )
+from pymongo import MongoClient
+from bson.objectid import ObjectId
 
 # ==========================
 #   TOKEN & SETTINGS
@@ -18,9 +19,18 @@ from telebot.types import (
 TOKEN = os.getenv("BOT_TOKEN")
 BOT_USERNAME = os.getenv("BOT_USERNAME")
 ADMIN_ID = 7797502113
-DB_FILE = "db.json"
 
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
+
+# ==========================
+#   MONGO DB CONNECTION
+# ==========================
+MONGO_URI = os.getenv("MONGO_URI")
+client = MongoClient(MONGO_URI)
+
+db = client["xanimelar_bot"]
+contents = db["contents"]  # kontentlar
+admins = db["admins"]      # adminlar (hozircha ishlatilmaydi)
 
 # ==========================
 #   FLASK SERVER
@@ -47,24 +57,9 @@ def keep_alive():
             requests.get("https://yuklovchi-bot-80ui.onrender.com")
         except:
             pass
-        time.sleep(600)  # 10 daqiqa
+        time.sleep(600)
 
 threading.Thread(target=keep_alive).start()
-
-# ==========================
-#   JSON DATABASE
-# ==========================
-def load_db():
-    if not os.path.exists(DB_FILE):
-        return {"contents": []}
-    with open(DB_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-def save_db(db):
-    with open(DB_FILE, "w", encoding="utf-8") as f:
-        json.dump(db, f, ensure_ascii=False, indent=2)
-
-db = load_db()
 
 # ==========================
 #   RANDOM CODE GENERATOR
@@ -163,26 +158,19 @@ def start(message):
 def start_with_code(message):
     code = message.text.split()[1]
 
-    for item in db["contents"]:
-        if item["code"] == code:
+    item = contents.find_one({"code": code})
+    if not item:
+        bot.send_message(message.chat.id, "❌ Kontent topilmadi yoki o‘chirilgan.")
+        return
 
-            if item["type"] == "text":
-                bot.send_message(message.chat.id, item["text"])
-                return
-
-            if item["type"] == "photo":
-                bot.send_photo(message.chat.id, item["file_id"], caption=item.get("caption"))
-                return
-
-            if item["type"] == "video":
-                bot.send_video(message.chat.id, item["file_id"], caption=item.get("caption"))
-                return
-
-            if item["type"] == "document":
-                bot.send_document(message.chat.id, item["file_id"], caption=item.get("caption"))
-                return
-
-    bot.send_message(message.chat.id, "❌ Kontent topilmadi yoki o‘chirilgan.")
+    if item["type"] == "text":
+        bot.send_message(message.chat.id, item["text"])
+    elif item["type"] == "photo":
+        bot.send_photo(message.chat.id, item["file_id"], caption=item.get("caption"))
+    elif item["type"] == "video":
+        bot.send_video(message.chat.id, item["file_id"], caption=item.get("caption"))
+    elif item["type"] == "document":
+        bot.send_document(message.chat.id, item["file_id"], caption=item.get("caption"))
 
 # ==========================
 #   CALLBACK HANDLER
@@ -254,7 +242,7 @@ def save_multi(message):
     if admin_state.get(uid) != "multi_add":
         return
 
-    time.sleep(0.7)  # <<< MUHIM! Telegram bloklamasligi uchun
+    time.sleep(0.7)
 
     code = generate_code()
 
@@ -285,8 +273,7 @@ def save_multi(message):
     else:
         content = {"type": "text", "text": message.text, "code": code}
 
-    db["contents"].append(content)
-    save_db(db)
+    contents.insert_one(content)
 
     link = f"https://t.me/{BOT_USERNAME}?start={code}"
     bot.reply_to(message, link)
