@@ -1,10 +1,64 @@
-ADMIN_ID = 7797502113  # allaqachon bor bo‘lsa, qayta yozish shart emas
-admin_state = {}       # allaqachon bor bo‘lsa, qayta yozish shart emas
-
-from telebot.types import ReplyKeyboardMarkup, KeyboardButton
+import telebot
+import json
+import os
+import random
+import string
+import threading
+from flask import Flask
+from telebot.types import (
+    ReplyKeyboardMarkup, KeyboardButton,
+    InlineKeyboardMarkup, InlineKeyboardButton
+)
 
 # ==========================
-#   ADMIN PANEL KLAVIATURA
+#   ENV VARIABLES
+# ==========================
+TOKEN = os.getenv("BOT_TOKEN")
+BOT_USERNAME = os.getenv("BOT_USERNAME")
+ADMIN_ID = 7797502113
+DB_FILE = "db.json"
+
+bot = telebot.TeleBot(TOKEN)
+
+# ==========================
+#   FLASK HACK (24/7)
+# ==========================
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is running"
+
+def run_flask():
+    app.run(host="0.0.0.0", port=10000)
+
+threading.Thread(target=run_flask).start()
+
+# ==========================
+#   JSON DATABASE
+# ==========================
+def load_db():
+    if not os.path.exists(DB_FILE):
+        return {"contents": []}
+    with open(DB_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def save_db(db):
+    with open(DB_FILE, "w", encoding="utf-8") as f:
+        json.dump(db, f, ensure_ascii=False, indent=2)
+
+db = load_db()
+
+# ==========================
+#   RANDOM CODE GENERATOR
+# ==========================
+def generate_code(length=12):
+    return ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(length))
+
+admin_state = {}
+
+# ==========================
+#   ADMIN PANEL
 # ==========================
 def admin_panel():
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
@@ -19,7 +73,7 @@ def admin_panel():
     return markup
 
 # ==========================
-#   /admin KOMANDASI
+#   /admin COMMAND
 # ==========================
 @bot.message_handler(commands=['admin'])
 def admin_start(message):
@@ -36,7 +90,7 @@ def admin_start(message):
     )
 
 # ==========================
-#   ADMIN TUGMALARI
+#   ADMIN BUTTONS
 # ==========================
 @bot.message_handler(func=lambda m: m.from_user.id == ADMIN_ID and m.text in [
     "Cantent Qo'shish", "Majburi Obuna", "Habar Yuborish", "🔙 Chiqish"
@@ -64,13 +118,88 @@ def admin_buttons(message):
         )
 
 # ==========================
-#   CANTENT SAQLASH QISMI
+#   START COMMAND
+# ==========================
+@bot.message_handler(commands=['start'])
+def start(message):
+    uid = message.from_user.id
+
+    markup = InlineKeyboardMarkup()
+    markup.add(
+        InlineKeyboardButton("📝 Bot Haqida", callback_data="about"),
+        InlineKeyboardButton("🔒 Yopish", callback_data=f"close:{message.message_id}")
+    )
+
+    bot.reply_to(
+        message,
+        "Bu bot orqali kanaldagi animelarni yuklab olishingiz mumkin\n\n"
+        "❗️Botga habar yozmang❗️",
+        reply_markup=markup
+    )
+
+# ==========================
+#   INLINE CALLBACKS
+# ==========================
+@bot.callback_query_handler(func=lambda call: True)
+def callback(call):
+    data = call.data
+
+    if data.startswith("close"):
+        start_msg_id = int(data.split(":")[1])
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+            bot.delete_message(call.message.chat.id, start_msg_id)
+        except:
+            pass
+        return
+
+    if data == "about":
+        markup = InlineKeyboardMarkup()
+        markup.add(
+            InlineKeyboardButton("👨‍💻 Yaratuvchi", callback_data="creator"),
+            InlineKeyboardButton("🔒 Yopish", callback_data=f"close:{call.message.message_id}")
+        )
+
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=(
+                "Botni ishlatishni bilmaganlar uchun!\n\n"
+                "❏ Botni ishlatish qo'llanmasi:\n"
+                "    1. Kanallarga obuna bo'ling!\n"
+                "    2. Tekshirish Tugmasini bosing ✅\n"
+                "    3. Kanaldagi anime post past qismidagi yuklab olish tugmasini bosing\n\n"
+                "📢 Kanal: @AniGonUz"
+            ),
+            reply_markup=markup
+        )
+
+    if data == "creator":
+        markup = InlineKeyboardMarkup()
+        markup.add(
+            InlineKeyboardButton("📝 Bot Haqida", callback_data="about"),
+            InlineKeyboardButton("🔒 Yopish", callback_data=f"close:{call.message.message_id}")
+        )
+
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=(
+                "• Admin: @Shadow_Sxi\n"
+                "• Asosiy Kanal: @AniGonUz\n"
+                "• Reklama: @AniReklamaUz\n\n"
+                "👨‍💻 Savollar Boʻlsa: @AniManxwaBot"
+            ),
+            reply_markup=markup
+        )
+
+# ==========================
+#   CONTENT SAVING
 # ==========================
 @bot.message_handler(content_types=['text', 'photo', 'video', 'document'])
 def save_content(message):
     uid = message.from_user.id
 
-    # faqat admin va faqat add_content holatida
     if uid != ADMIN_ID or admin_state.get(uid) != "add_content":
         return
 
@@ -114,3 +243,8 @@ def save_content(message):
     bot.reply_to(message, link, reply_markup=admin_panel())
 
     admin_state[uid] = None
+
+# ==========================
+#   POLLING
+# ==========================
+bot.infinity_polling()
