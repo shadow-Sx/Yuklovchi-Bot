@@ -132,8 +132,8 @@ def start(message):
 
     bot.reply_to(
         message,
-        "Bu bot orqali kanaldagi animelarni yuklab olishingiz mumkin\n\n"
-        "❗️Botga habar yozmang❗️",
+        "<b>Bu bot orqali kanaldagi animelarni yuklab olishingiz mumkin\n\n"
+        "❗️Botga habar yozmang❗️</b>",
         reply_markup=markup
     )
 
@@ -164,12 +164,12 @@ def callback(call):
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
             text=(
-                "Botni ishlatishni bilmaganlar uchun!\n\n"
+                "<b>Botni ishlatishni bilmaganlar uchun!\n\n"
                 "❏ Botni ishlatish qo'llanmasi:\n"
                 "    1. Kanallarga obuna bo'ling!\n"
                 "    2. Tekshirish Tugmasini bosing ✅\n"
                 "    3. Kanaldagi anime post past qismidagi yuklab olish tugmasini bosing\n\n"
-                "📢 Kanal: @AniGonUz"
+                "📢 Kanal: <i>@AniGonUz</i></b>"
             ),
             reply_markup=markup
         )
@@ -185,10 +185,10 @@ def callback(call):
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
             text=(
-                "• Admin: @Shadow_Sxi\n"
-                "• Asosiy Kanal: @AniGonUz\n"
-                "• Reklama: @AniReklamaUz\n\n"
-                "👨‍💻 Savollar Boʻlsa: @AniManxwaBot"
+                "<>• Admin: <i>@Shadow_Sxi</i>\n"
+                "• Asosiy Kanal: <i>@AniGonUz</i>\n"
+                "• Reklama: <i>@AniReklamaUz</i>\n\n"
+                "👨‍💻 Savollar Boʻlsa: @AniManxwaBot</>"
             ),
             reply_markup=markup
         )
