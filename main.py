@@ -185,10 +185,10 @@ def callback(call):
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
             text=(
-                "<>• Admin: <i>@Shadow_Sxi</i>\n"
+                "<b>• Admin: <i>@Shadow_Sxi</i>\n"
                 "• Asosiy Kanal: <i>@AniGonUz</i>\n"
                 "• Reklama: <i>@AniReklamaUz</i>\n\n"
-                "👨‍💻 Savollar Boʻlsa: @AniManxwaBot</>"
+                "👨‍💻 Savollar Boʻlsa: @AniManxwaBot</b>"
             ),
             reply_markup=markup
         )
