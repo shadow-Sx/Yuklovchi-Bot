@@ -115,8 +115,8 @@ def admin_buttons(message):
     text = message.text
 
     if text == "Cantent Qo'shish":
-        admin_state[uid] = "add_content"
-        bot.reply_to(message, "📥 Cantent yuboring:")
+        admin_state[uid] = "multi_add"
+        bot.reply_to(message, "📥 Hamma videolarni tashlang.\n\nTugagach /stop deb yozing.")
 
     elif text == "Majburi Obuna":
         bot.reply_to(message, "📌 Bu bo‘lim keyin qo‘shiladi.")
@@ -127,6 +127,16 @@ def admin_buttons(message):
     elif text == "🔙 Chiqish":
         admin_state[uid] = None
         bot.send_message(uid, "Admin paneldan chiqdingiz.", reply_markup=telebot.types.ReplyKeyboardRemove())
+
+# ==========================
+#   /stop — multi upload tugatish
+# ==========================
+@bot.message_handler(commands=['stop'])
+def stop(message):
+    uid = message.from_user.id
+    if admin_state.get(uid) == "multi_add":
+        admin_state[uid] = None
+        bot.reply_to(message, "✅ Barcha kontentlar qabul qilindi.", reply_markup=admin_panel())
 
 # ==========================
 #   /start (ODDIY)
@@ -235,35 +245,31 @@ def callback(call):
         )
 
 # ==========================
-#   CONTENT SAVING (0.7s delay)
+#   MULTI-UPLOAD CONTENT SAVING
 # ==========================
 @bot.message_handler(content_types=['text', 'photo', 'video', 'document'])
-def save_content(message):
+def save_multi(message):
     uid = message.from_user.id
 
-    if uid != ADMIN_ID or admin_state.get(uid) != "add_content":
+    if admin_state.get(uid) != "multi_add":
         return
 
     time.sleep(0.7)  # <<< MUHIM! Telegram bloklamasligi uchun
 
-    content = {}
     code = generate_code()
 
-    if message.content_type == "text":
-        content = {"type": "text", "text": message.text, "code": code}
+    if message.content_type == "video":
+        content = {
+            "type": "video",
+            "file_id": message.video.file_id,
+            "caption": message.caption,
+            "code": code
+        }
 
     elif message.content_type == "photo":
         content = {
             "type": "photo",
             "file_id": message.photo[-1].file_id,
-            "caption": message.caption,
-            "code": code
-        }
-
-    elif message.content_type == "video":
-        content = {
-            "type": "video",
-            "file_id": message.video.file_id,
             "caption": message.caption,
             "code": code
         }
@@ -276,13 +282,14 @@ def save_content(message):
             "code": code
         }
 
+    else:
+        content = {"type": "text", "text": message.text, "code": code}
+
     db["contents"].append(content)
     save_db(db)
 
     link = f"https://t.me/{BOT_USERNAME}?start={code}"
-    bot.reply_to(message, link, reply_markup=admin_panel())
-
-    admin_state[uid] = None
+    bot.reply_to(message, link)
 
 # ==========================
 #   RUN SERVER
