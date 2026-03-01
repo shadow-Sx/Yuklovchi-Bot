@@ -171,7 +171,7 @@ def callback(call):
                 "1. Kanallarga obuna bo'ling!\n"
                 "2. Tekshirish tugmasini bosing ✅\n"
                 "3. Kanaldagi anime post past qismidagi yuklab olish tugmasini bosing\n\n"
-                "📢 <b>Kanal:</b> <i>@AniGonUz</i>"
+                "📢 <b>Kanal: <i>@AniGonUz</i></b>"
             ),
             reply_markup=markup
         )
@@ -188,10 +188,11 @@ def callback(call):
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
             text=(
-                "<b>• Admin:</b> <i>@Shadow_Sxi</i>\n"
-                "<b>• Asosiy Kanal:</b> <i>@AniGonUz</i>\n"
-                "<b>• Reklama:</b> <i>@AniReklamaUz</i>\n\n"
-                "<b>👨‍💻 Savollar Boʻlsa:</b> <i>@AniManxwaBot</i>"
+                "<b>• Admin: <i>@Shadow_Sxi</i></b>\n"
+                "<b>• Asosiy Kanal: <i>@AniGonUz</i><b>\n"
+                "<b>• Reklama: <i>@AniReklamaUz</i></b>\n\n"
+                
+                "<b>👨‍💻 Savollar Boʻlsa: <i>@AniManxwaBot</i></b>"
             ),
             reply_markup=markup
         )
