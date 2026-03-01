@@ -18,7 +18,7 @@ BOT_USERNAME = os.getenv("BOT_USERNAME")
 ADMIN_ID = 7797502113
 DB_FILE = "db.json"
 
-bot = telebot.TeleBot(TOKEN)
+bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 
 # ==========================
 #   FLASK HACK (24/7)
@@ -118,7 +118,7 @@ def admin_buttons(message):
         )
 
 # ==========================
-#   START COMMAND
+#   /start COMMAND
 # ==========================
 @bot.message_handler(commands=['start'])
 def start(message):
@@ -132,8 +132,8 @@ def start(message):
 
     bot.reply_to(
         message,
-        "<b>Bu bot orqali kanaldagi animelarni yuklab olishingiz mumkin\n\n"
-        "❗️Botga habar yozmang❗️</b>",
+        "<b>Bu bot orqali kanaldagi animelarni yuklab olishingiz mumkin</b>\n\n"
+        "<b>❗️Botga habar yozmang❗️</b>",
         reply_markup=markup
     )
 
@@ -144,6 +144,7 @@ def start(message):
 def callback(call):
     data = call.data
 
+    # --- Yopish ---
     if data.startswith("close"):
         start_msg_id = int(data.split(":")[1])
         try:
@@ -153,6 +154,7 @@ def callback(call):
             pass
         return
 
+    # --- Bot Haqida ---
     if data == "about":
         markup = InlineKeyboardMarkup()
         markup.add(
@@ -164,16 +166,17 @@ def callback(call):
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
             text=(
-                "<b>Botni ishlatishni bilmaganlar uchun!\n\n"
-                "❏ Botni ishlatish qo'llanmasi:\n"
-                "    1. Kanallarga obuna bo'ling!\n"
-                "    2. Tekshirish Tugmasini bosing ✅\n"
-                "    3. Kanaldagi anime post past qismidagi yuklab olish tugmasini bosing\n\n"
-                "📢 Kanal: <i>@AniGonUz</i></b>"
+                "<b>Botni ishlatishni bilmaganlar uchun!</b>\n\n"
+                "❏ <b>Botni ishlatish qo'llanmasi:</b>\n"
+                "1. Kanallarga obuna bo'ling!\n"
+                "2. Tekshirish tugmasini bosing ✅\n"
+                "3. Kanaldagi anime post past qismidagi yuklab olish tugmasini bosing\n\n"
+                "📢 <b>Kanal:</b> <i>@AniGonUz</i>"
             ),
             reply_markup=markup
         )
 
+    # --- Yaratuvchi ---
     if data == "creator":
         markup = InlineKeyboardMarkup()
         markup.add(
@@ -185,10 +188,10 @@ def callback(call):
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
             text=(
-                "<b>• Admin: <i>@Shadow_Sxi</i>\n"
-                "• Asosiy Kanal: <i>@AniGonUz</i>\n"
-                "• Reklama: <i>@AniReklamaUz</i>\n\n"
-                "👨‍💻 Savollar Boʻlsa: @AniManxwaBot</b>"
+                "<b>• Admin:</b> <i>@Shadow_Sxi</i>\n"
+                "<b>• Asosiy Kanal:</b> <i>@AniGonUz</i>\n"
+                "<b>• Reklama:</b> <i>@AniReklamaUz</i>\n\n"
+                "<b>👨‍💻 Savollar Boʻlsa:</b> <i>@AniManxwaBot</i>"
             ),
             reply_markup=markup
         )
