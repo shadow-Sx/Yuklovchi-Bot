@@ -193,6 +193,47 @@ def callback(call):
         )
 
 # ==========================
+#   START-LINK CONTENT VIEW
+# ==========================
+@bot.message_handler(func=lambda m: m.text.startswith("/start ") and len(m.text.split()) == 2)
+def start_with_code(message):
+    code = message.text.split()[1]  # /start CODE
+
+    # JSONdan qidiramiz
+    for item in db["contents"]:
+        if item["code"] == code:
+            
+            # PHOTO
+            if item["type"] == "photo":
+                bot.send_photo(
+                    message.chat.id,
+                    item["file_id"],
+                    caption=item.get("caption")
+                )
+                return
+
+            # VIDEO
+            if item["type"] == "video":
+                bot.send_video(
+                    message.chat.id,
+                    item["file_id"],
+                    caption=item.get("caption")
+                )
+                return
+
+            # DOCUMENT
+            if item["type"] == "document":
+                bot.send_document(
+                    message.chat.id,
+                    item["file_id"],
+                    caption=item.get("caption")
+                )
+                return
+
+    # Agar kod topilmasa
+    bot.send_message(message.chat.id, "❌ Kontent topilmadi yoki o‘chirilgan.")
+
+# ==========================
 #   CONTENT SAVING
 # ==========================
 @bot.message_handler(content_types=['text', 'photo', 'video', 'document'])
