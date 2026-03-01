@@ -77,9 +77,7 @@ def admin_panel():
 # ==========================
 @bot.message_handler(commands=['admin'])
 def admin_start(message):
-    uid = message.from_user.id
-
-    if uid != ADMIN_ID:
+    if message.from_user.id != ADMIN_ID:
         bot.reply_to(message, "❌ Siz admin emassiz!")
         return
 
@@ -96,8 +94,8 @@ def admin_start(message):
     "Cantent Qo'shish", "Majburi Obuna", "Habar Yuborish", "🔙 Chiqish"
 ])
 def admin_buttons(message):
-    text = message.text
     uid = message.from_user.id
+    text = message.text
 
     if text == "Cantent Qo'shish":
         admin_state[uid] = "add_content"
@@ -111,19 +109,13 @@ def admin_buttons(message):
 
     elif text == "🔙 Chiqish":
         admin_state[uid] = None
-        bot.send_message(
-            uid,
-            "Admin paneldan chiqdingiz.",
-            reply_markup=telebot.types.ReplyKeyboardRemove()
-        )
+        bot.send_message(uid, "Admin paneldan chiqdingiz.", reply_markup=telebot.types.ReplyKeyboardRemove())
 
 # ==========================
 #   /start COMMAND
 # ==========================
 @bot.message_handler(commands=['start'])
 def start(message):
-    uid = message.from_user.id
-
     markup = InlineKeyboardMarkup()
     markup.add(
         InlineKeyboardButton("📝 Bot Haqida", callback_data="about"),
@@ -132,8 +124,8 @@ def start(message):
 
     bot.reply_to(
         message,
-        "<b>Bu bot orqali kanaldagi animelarni yuklab olishingiz mumkin</b>\n\n"
-        "<b>❗️Botga habar yozmang❗️</b>",
+        "<b>Bu bot orqali kanaldagi animelarni yuklab olishingiz mumkin.\n\n"
+        "❗️Botga habar yozmang❗️</b>",
         reply_markup=markup
     )
 
@@ -166,12 +158,14 @@ def callback(call):
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
             text=(
-                "<b>Botni ishlatishni bilmaganlar uchun!</b>\n\n"
-                "❏ <b>Botni ishlatish qo'llanmasi:</b>\n"
+                "<b>"
+                "Botni ishlatishni bilmaganlar uchun!\n\n"
+                "❏ Botni ishlatish qo'llanmasi:\n"
                 "1. Kanallarga obuna bo'ling!\n"
                 "2. Tekshirish tugmasini bosing ✅\n"
                 "3. Kanaldagi anime post past qismidagi yuklab olish tugmasini bosing\n\n"
-                "📢 <b>Kanal: <i>@AniGonUz</i></b>"
+                "📢 Kanal: <i>@AniGonUz</i>"
+                "</b>"
             ),
             reply_markup=markup
         )
@@ -188,11 +182,12 @@ def callback(call):
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
             text=(
-                "<b>• Admin: <i>@Shadow_Sxi</i></b>\n"
-                "<b>• Asosiy Kanal: <i>@AniGonUz</i><b>\n"
-                "<b>• Reklama: <i>@AniReklamaUz</i></b>\n\n"
-                
-                "<b>👨‍💻 Savollar Boʻlsa: <i>@AniManxwaBot</i></b>"
+                "<b>"
+                "• Admin: <i>@Shadow_Sxi</i>\n"
+                "• Asosiy Kanal: <i>@AniGonUz</i>\n"
+                "• Reklama: <i>@AniReklamaUz</i>\n\n"
+                "👨‍💻 Savollar Boʻlsa: <i>@AniManxwaBot</i>"
+                "</b>"
             ),
             reply_markup=markup
         )
@@ -205,9 +200,6 @@ def save_content(message):
     uid = message.from_user.id
 
     if uid != ADMIN_ID or admin_state.get(uid) != "add_content":
-        return
-
-    if message.text in ["Cantent Qo'shish", "Majburi Obuna", "Habar Yuborish", "🔙 Chiqish"]:
         return
 
     content = {}
