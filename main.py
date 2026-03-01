@@ -221,6 +221,29 @@ def save_content(message):
     admin_state[uid] = None
 
 # ==========================
+#   ADMIN /admin PANEL
+# ==========================
+@bot.message_handler(commands=['admin'])
+def admin_start(message):
+    uid = message.from_user.id
+
+    if uid != ADMIN_ID:
+        bot.reply_to(message, "❌ Siz admin emassiz!")
+        return
+
+    markup = ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.row(
+        KeyboardButton("Cantent Qo'shish"),
+        KeyboardButton("Majburi Obuna")
+    )
+    markup.row(
+        KeyboardButton("Habar Yuborish"),
+        KeyboardButton("🔙 Chiqish")
+    )
+
+    bot.reply_to(message, "⚙️ Admin panelga xush kelibsiz!", reply_markup=markup)
+
+# ==========================
 #   POLLING
 # ==========================
 bot.infinity_polling()
