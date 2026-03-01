@@ -3,16 +3,12 @@ import json
 import os
 import random
 import string
-import threading
-from flask import Flask
+from flask import Flask, request
 from telebot.types import (
     ReplyKeyboardMarkup, KeyboardButton,
     InlineKeyboardMarkup, InlineKeyboardButton
 )
 
-# ==========================
-#   ENV VARIABLES
-# ==========================
 TOKEN = os.getenv("BOT_TOKEN")
 BOT_USERNAME = os.getenv("BOT_USERNAME")
 ADMIN_ID = 7797502113
@@ -21,7 +17,7 @@ DB_FILE = "db.json"
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 
 # ==========================
-#   FLASK HACK (24/7)
+#   FLASK SERVER
 # ==========================
 app = Flask(__name__)
 
@@ -29,10 +25,12 @@ app = Flask(__name__)
 def home():
     return "Bot is running"
 
-def run_flask():
-    app.run(host="0.0.0.0", port=10000)
-
-threading.Thread(target=run_flask).start()
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    json_data = request.get_data().decode('utf-8')
+    update = telebot.types.Update.de_json(json_data)
+    bot.process_new_updates([update])
+    return "OK", 200
 
 # ==========================
 #   JSON DATABASE
@@ -112,7 +110,7 @@ def admin_buttons(message):
         bot.send_message(uid, "Admin paneldan chiqdingiz.", reply_markup=telebot.types.ReplyKeyboardRemove())
 
 # ==========================
-#   /start (FAQAT ODDIY /start UCHUN)
+#   /start (ODDIY)
 # ==========================
 @bot.message_handler(func=lambda m: m.text == "/start")
 def start(message):
@@ -144,7 +142,7 @@ def start_with_code(message):
                 return
 
             if item["type"] == "photo":
-                bot.send_photo(message.chat.id, item["file_id"], caption=item.get("caption"))
+                bot.send_photo(message.chat.chat.id, item["file_id"], caption=item.get("caption"))
                 return
 
             if item["type"] == "video":
@@ -158,13 +156,12 @@ def start_with_code(message):
     bot.send_message(message.chat.id, "❌ Kontent topilmadi yoki o‘chirilgan.")
 
 # ==========================
-#   INLINE CALLBACKS
+#   CALLBACK HANDLER
 # ==========================
 @bot.callback_query_handler(func=lambda call: True)
 def callback(call):
     data = call.data
 
-    # --- Yopish ---
     if data.startswith("close"):
         start_msg_id = int(data.split(":")[1])
         try:
@@ -174,7 +171,6 @@ def callback(call):
             pass
         return
 
-    # --- Bot Haqida ---
     if data == "about":
         markup = InlineKeyboardMarkup()
         markup.add(
@@ -198,7 +194,6 @@ def callback(call):
             reply_markup=markup
         )
 
-    # --- Yaratuvchi ---
     if data == "creator":
         markup = InlineKeyboardMarkup()
         markup.add(
@@ -269,6 +264,7 @@ def save_content(message):
     admin_state[uid] = None
 
 # ==========================
-#   POLLING
+#   RUN FLASK SERVER
 # ==========================
-bot.infinity_polling()
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000)
