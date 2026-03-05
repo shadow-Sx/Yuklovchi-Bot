@@ -1,7 +1,8 @@
 from flask import Flask, request
 import telebot
-from bot_handlers import bot
-import os
+
+from bot_handlers_1 import bot
+import bot_handlers_2
 
 app = Flask(__name__)
 
@@ -18,3 +19,4 @@ def webhook():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
+    
