@@ -250,6 +250,13 @@ def save_multi(message):
     bot.reply_to(message, link)
 
 # ==========================
+#   START-LINK HANDLER
+# ==========================
+@bot.message_handler(func=lambda m: m.text.startswith("/start ") and len(m.text.split()) == 2)
+def start_with_code_handler(message):
+    start_with_code(message)
+
+# ==========================
 #   /start
 # ==========================
 @bot.message_handler(commands=['start'])
@@ -299,7 +306,7 @@ def send_content(chat_id, item):
 # ==========================
 #   CALLBACK HANDLER
 # ==========================
-@bot.callback_query_handler(func=lambda call: True)
+@bot.callback_query_handler(func=lambda call: call.data in ["about", "creator"] or call.data.startswith("close"))
 def callback(call):
     data = call.data
 
