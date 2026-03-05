@@ -13,6 +13,7 @@ from utils import (
 from bson.objectid import ObjectId
 import threading
 import time
+import random
 
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 
@@ -131,7 +132,6 @@ def admin_callback(call):
     data = call.data
     uid = call.from_user.id
 
-    # MULTI UPLOAD
     if data == "multi_single":
         admin_state[uid] = "multi_single"
         admin_data[uid] = {"group_mode": False}
@@ -150,7 +150,6 @@ def admin_callback(call):
         bot.edit_message_text("❌ Bekor qilindi.", call.message.chat.id, call.message.message_id)
         return
 
-    # REQUIRED / OPTIONAL / REFERRAL
     if data == "req_add": start_required_add(call)
     elif data == "req_edit": start_required_edit(call)
     elif data == "req_delete": start_required_delete(call)
@@ -423,7 +422,4 @@ def stop_multi(message):
 # ==========================
 #   MULTI-UPLOAD SAQLASH
 # ==========================
-@bot.message_handler(content_types=["text", "photo", "video", "document", "audio", "voice", "animation"])
-def save_content(message):
-    uid = message.from_user.id
-    state = admin
+@bot.message_handler(content_types=["text", "photo", "video", "document", "audio
