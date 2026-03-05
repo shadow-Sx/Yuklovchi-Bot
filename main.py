@@ -1,42 +1,20 @@
 import telebot
-from telebot import TeleBot
-from config import BOT_TOKEN, KEEP_ALIVE_URL
+from config import BOT_TOKEN
+from keep_alive import keep_alive
 from handlers import register_handlers
 from subscription import register_subscription, register_check_handler
 from admin_panel import register_admin_panel
 from security import register_security
-import threading
-import time
-import requests
 
 
-# ==========================
-#   KEEP ALIVE (Render Free)
-# ==========================
-def keep_alive():
-    if not KEEP_ALIVE_URL:
-        return
-
-    def ping():
-        while True:
-            try:
-                requests.get(KEEP_ALIVE_URL)
-            except:
-                pass
-            time.sleep(60)
-
-    thread = threading.Thread(target=ping, daemon=True)
-    thread.start()
-
-
-# ==========================
-#   BOT START
-# ==========================
-bot = TeleBot(BOT_TOKEN, parse_mode="HTML")
+bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
 
 def main():
-    # Keep Alive ishga tushiramiz
+    # Webhookni o'chiramiz (polling ishlashi uchun)
+    bot.delete_webhook(drop_pending_updates=True)
+
+    # Render Free uchun
     keep_alive()
 
     # Modullarni ulaymiz
