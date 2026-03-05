@@ -160,7 +160,6 @@ def multi_upload_menu():
     )
     kb.add(InlineKeyboardButton("🔙 Bekor qilish", callback_data="multi_cancel"))
     return kb
-
 # ==========================
 #   ADMIN /admin
 # ==========================
@@ -690,304 +689,7 @@ def stop_multi(message):
     uid = message.from_user.id
     state = admin_state.get(uid)
 
-    if state not in ["multi_single", "multi_group"]:
-        return
-
-    if state == "multi_group":
-        items = admin_data.get(uid, {}).get("items", [])
-        if not items:
-            bot.reply_to(message, "❌ Hech qanday kontent yuborilmadi.")
-            admin_state[uid] = None
-            admin_data[uid] = {}
-            return
-
-        code = generate_code()
-        contents.insert_one({
-            "type": "group",
-            "items": items,
-            "code": code
-        })
-
-        link = f"https://t.me/{BOT_USERNAME}?start={code}"
-        bot.reply_to(
-            message,
-            f"✅ Playlist saqlandi.\nStart havola:\n<code>{link}</code>",
-            reply_markup=admin_main_menu()
-        )
-
-    else:
-        bot.reply_to(
-            message,
-            "✅ Kontent qo‘shish yakunlandi.",
-            reply_markup=admin_main_menu()
-        )
-
-    admin_state[uid] = None
-    admin_data[uid] = {}
-
-# ==========================
-#   MULTI-UPLOAD SAQLASH
-# ==========================
-@bot.message_handler(content_types=["text", "photo", "video", "document", "audio", "voice", "animation"])
-def save_content(message):
-    uid = message.from_user.id
-    state = admin_state.get(uid)
-
-    # ADMIN MULTI-UPLOAD
-    if uid == ADMIN_ID and state in ["multi_single", "multi_group"]:
-        group_mode = (state == "multi_group")
-
-        if message.content_type == "video":
-            item = {
-                "type": "video",
-                "file_id": message.video.file_id,
-                "caption": message.caption
-            }
-        elif message.content_type == "photo":
-            item = {
-                "type": "photo",
-                "file_id": message.photo[-1].file_id,
-                "caption": message.caption
-            }
-        elif message.content_type == "document":
-            item = {
-                "type": "document",
-                "file_id": message.document.file_id,
-                "caption": message.caption
-            }
-        elif message.content_type == "audio":
-            item = {
-                "type": "audio",
-                "file_id": message.audio.file_id,
-                "caption": message.caption
-            }
-        elif message.content_type == "voice":
-            item = {
-                "type": "voice",
-                "file_id": message.voice.file_id,
-                "caption": message.caption
-            }
-        elif message.content_type == "animation":
-            item = {
-                "type": "animation",
-                "file_id": message.animation.file_id,
-                "caption": message.caption
-            }
-        else:
-            item = {
-                "type": "text",
-                "text": message.text
-            }
-
-        if group_mode:
-            data = admin_data.get(uid, {})
-            data.setdefault("items", []).append(item)
-            admin_data[uid] = data
-            bot.reply_to(message, "✅ Playlistga qo‘shildi.")
-        else:
-            code = generate_code()
-            item["code"] = code
-            contents.insert_one(item)
-            link = f"https://t.me/{BOT_USERNAME}?start={code}"
-            bot.reply_to(message, f"✅ Saqlandi:\n<code>{link}</code>")
-
-        return
-
-    # ADMIN BROADCAST KONTENTI
-    if uid == ADMIN_ID and state == "wait_broadcast_content":
-        doc = {}
-
-        if message.content_type == "video":
-            doc = {
-                "type": "video",
-                "file_id": message.video.file_id,
-                "caption": message.caption
-            }
-        elif message.content_type == "photo":
-            doc = {
-                "type": "photo",
-                "file_id": message.photo[-1].file_id,
-                "caption": message.caption
-            }
-        elif message.content_type == "document":
-            doc = {
-                "type": "document",
-                "file_id": message.document.file_id,
-                "caption": message.caption
-            }
-        elif message.content_type == "audio":
-            doc = {
-                "type": "audio",
-                "file_id": message.audio.file_id,
-                "caption": message.caption
-            }
-        elif message.content_type == "voice":
-            doc = {
-                "type": "voice",
-                "file_id": message.voice.file_id,
-                "caption": message.caption
-            }
-        elif message.content_type == "animation":
-            doc = {
-                "type": "animation",
-                "file_id": message.animation.file_id,
-                "caption": message.caption
-            }
-        else:
-            doc = {
-                "type": "text",
-                "text": message.text
-            }
-
-        admin_data[uid] = {"broadcast": doc, "buttons": []}
-        admin_state[uid] = "broadcast_menu"
-
-        kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("➕ Tugma qo‘shish", callback_data="bc_add_btn"))
-        kb.add(
-            InlineKeyboardButton("👁 Ko‘rish", callback_data="bc_preview"),
-            InlineKeyboardButton("📨 Yuborish", callback_data="bc_send")
-        )
-        kb.add(InlineKeyboardButton("❌ Bekor qilish", callback_data="bc_cancel"))
-
-        bot.reply_to(
-            message,
-            "✅ Broadcast xabari saqlandi.\nEndi tugmalarni qo‘shishingiz mumkin.",
-            reply_markup=kb
-        )
-        return
-
-# ==========================
-#   BROADCAST CALLBACKLAR
-# ==========================
-@bot.callback_query_handler(func=lambda c: c.from_user.id == ADMIN_ID and c.data in [
-    "bc_add_btn", "bc_preview", "bc_send", "bc_cancel"
-])
-def broadcast_callbacks(call):
-    uid = call.from_user.id
-    data = call.data
-    st = admin_state.get(uid)
-
-    if st != "broadcast_menu":
-        bot.answer_callback_query(call.id, "Broadcast xabari topilmadi.", show_alert=True)
-        return
-
-    if data == "bc_cancel":
-        admin_state[uid] = None
-        admin_data[uid] = {}
-        bot.edit_message_text(
-            "❌ Broadcast bekor qilindi.",
-            call.message.chat.id,
-            call.message.message_id
-        )
-        return
-
-    if data == "bc_add_btn":
-        admin_state[uid] = "bc_wait_btn_name"
-        bot.send_message(uid, "Tugma nomini kiriting:")
-        return
-
-    if data == "bc_preview":
-        info = admin_data.get(uid, {})
-        doc = info.get("broadcast")
-        buttons = info.get("buttons", [])
-
-        kb = InlineKeyboardMarkup()
-        for b in buttons:
-            kb.add(InlineKeyboardButton(b["name"], url=b["url"]))
-
-        if not doc:
-            bot.answer_callback_query(call.id, "Xabar topilmadi.", show_alert=True)
-            return
-
-        t = doc["type"]
-        if t == "text":
-            bot.send_message(uid, doc["text"], reply_markup=kb)
-        elif t == "photo":
-            bot.send_photo(uid, doc["file_id"], caption=doc.get("caption"), reply_markup=kb)
-        elif t == "video":
-            bot.send_video(uid, doc["file_id"], caption=doc.get("caption"), reply_markup=kb)
-        elif t == "document":
-            bot.send_document(uid, doc["file_id"], caption=doc.get("caption"), reply_markup=kb)
-        elif t == "audio":
-            bot.send_audio(uid, doc["file_id"], caption=doc.get("caption"), reply_markup=kb)
-        elif t == "voice":
-            bot.send_voice(uid, doc["file_id"], caption=doc.get("caption"), reply_markup=kb)
-        elif t == "animation":
-            bot.send_animation(uid, doc["file_id"], caption=doc.get("caption"), reply_markup=kb)
-
-        return
-
-    if data == "bc_send":
-        info = admin_data.get(uid, {})
-        doc = info.get("broadcast")
-        buttons = info.get("buttons", [])
-
-        if not doc:
-            bot.answer_callback_query(call.id, "Xabar topilmadi.", show_alert=True)
-            return
-
-        kb = InlineKeyboardMarkup()
-        for b in buttons:
-            kb.add(InlineKeyboardButton(b["name"], url=b["url"]))
-
-        count = 0
-        for u in users.find({}):
-            chat_id = u["user_id"]
-            try:
-                t = doc["type"]
-                if t == "text":
-                    bot.send_message(chat_id, doc["text"], reply_markup=kb)
-                elif t == "photo":
-                    bot.send_photo(chat_id, doc["file_id"], caption=doc.get("caption"), reply_markup=kb)
-                elif t == "video":
-                    bot.send_video(chat_id, doc["file_id"], caption=doc.get("caption"), reply_markup=kb)
-                elif t == "document":
-                    bot.send_document(chat_id, doc["file_id"], caption=doc.get("caption"), reply_markup=kb)
-                elif t == "audio":
-                    bot.send_audio(chat_id, doc["file_id"], caption=doc.get("caption"), reply_markup=kb)
-                elif t == "voice":
-                    bot.send_voice(chat_id, doc["file_id"], caption=doc.get("caption"), reply_markup=kb)
-                elif t == "animation":
-                    bot.send_animation(chat_id, doc["file_id"], caption=doc.get("caption"), reply_markup=kb)
-                count += 1
-            except:
-                pass
-
-        bot.edit_message_text(
-            f"✅ Broadcast yuborildi.\nYuborilgan foydalanuvchilar: <b>{count}</b>",
-            call.message.chat.id,
-            call.message.message_id
-        )
-
-        admin_state[uid] = None
-        admin_data[uid] = {}
-        return
-
-# ==========================
-#   BROADCAST TUGMA NOMI / URL
-# ==========================
-@bot.message_handler(func=lambda m: m.from_user.id == ADMIN_ID and admin_state.get(m.from_user.id) == "bc_wait_btn_name")
-def bc_btn_name(message):
-    uid = message.from_user.id
-    admin_data.setdefault(uid, {})
-    admin_data[uid]["tmp_btn_name"] = message.text.strip()
-    admin_state[uid] = "bc_wait_btn_url"
-    bot.reply_to(message, "Endi tugma uchun URL yuboring:")
-
-@bot.message_handler(func=lambda m: m.from_user.id == ADMIN_ID and admin_state.get(m.from_user.id) == "bc_wait_btn_url")
-def bc_btn_url(message):
-    uid = message.from_user.id
-    url = message.text.strip()
-    name = admin_data.get(uid, {}).get("tmp_btn_name")
-
-    info = admin_data.get(uid, {})
-    info.setdefault("buttons", []).append({"name": name, "url": url})
-    admin_data[uid] = info
-
-    admin_state[uid] = "broadcast_menu"
-    bot.reply_to(message, f"✅ Tugma qo‘shildi: {name}")
-
+    if state not in
 # ==========================
 #   OBUNA TEKSHIRISH
 # ==========================
@@ -1027,15 +729,18 @@ def get_subscribe_keyboard(user_id, code):
     kb.add(InlineKeyboardButton("✔️ Tekshirish", callback_data=f"check:{code}"))
     return kb
 
+# ==========================
+#   KONTENT YUBORISH
+# ==========================
 def send_content(chat_id, item, code=None):
     t = item["type"]
+
+    msg = None
 
     if t == "group":
         for sub in item["items"]:
             send_content(chat_id, sub, code=None)
         return
-
-    msg = None
 
     if t == "text":
         msg = bot.send_message(chat_id, item["text"])
@@ -1055,6 +760,9 @@ def send_content(chat_id, item, code=None):
     if msg and code:
         schedule_delete(chat_id, msg, code=code)
 
+# ==========================
+#   OBUNA TEKSHIRISH CALLBACK
+# ==========================
 @bot.callback_query_handler(func=lambda c: c.data.startswith("check:"))
 def check_subs_callback(call):
     code = call.data.split(":")[1]
@@ -1070,6 +778,7 @@ def check_subs_callback(call):
         return
 
     send_content(call.message.chat.id, item, code=code)
+
     try:
         bot.delete_message(call.message.chat.id, call.message.message_id)
     except:
@@ -1104,7 +813,6 @@ def start_with_code(message):
 
     code = message.text.split()[1]
 
-    # Avval kontent sifatida qidiramiz
     item = contents.find_one({"code": code})
     if item:
         if not check_required_subs(message.from_user.id):
@@ -1119,7 +827,6 @@ def start_with_code(message):
         send_content(message.chat.id, item, code=code)
         return
 
-    # Aks holda referal sifatida hisoblaymiz
     referrals.update_one(
         {"key": code},
         {"$inc": {"count": 1}},
@@ -1224,6 +931,4 @@ threading.Thread(target=security_check, daemon=True).start()
 #   RUN SERVER
 # ==========================
 if __name__ == "__main__":
-    # Webhookni o‘rnatish (agar xohlasang, bir marta qo‘lda ham qilishing mumkin)
-    # requests.get(f"https://api.telegram.org/bot{TOKEN}/setWebhook?url=https://YUKLOVCHI-URL/webhook")
     app.run(host="0.0.0.0", port=10000)
