@@ -29,10 +29,10 @@ MONGO_URI = os.getenv("MONGO_URI")
 client = MongoClient(MONGO_URI)
 
 db = client["xanimelar_bot"]
-contents = db["contents"]              # kontentlar
+contents = db["contents"]
 required_channels_collection = db["required_channels"]
 optional_channels_collection = db["optional_channels"]
-required_stats = db["required_stats"]  # foydalanuvchi qaysi kanal uchun sanalganini saqlash
+required_stats = db["required_stats"]
 
 # ==========================
 #   FLASK SERVER
@@ -51,7 +51,7 @@ def webhook():
     return "OK", 200
 
 # ==========================
-#   SELF-PING (Render Free uxlamasin)
+#   SELF-PING (Render Free)
 # ==========================
 def keep_alive():
     while True:
@@ -156,57 +156,33 @@ def stop(message):
         bot.reply_to(message, "✅ Barcha kontentlar qabul qilindi.", reply_markup=admin_panel())
 
 # ==========================
-#   KANAL LINK / POST LINK PARSER
+#   KANAL POST HAVOLASI PARSER (STANDART FORMAT)
 # ==========================
-def extract_channel_id_from_link(url: str):
+def extract_channel_id_from_post(url: str):
     """
-    t.me/ChannelName/123 (public) va t.me/c/123456789/55 (private) formatlarini qo‘llab-quvvatlaydi.
-    Private kanal: t.me/c/123456789/... -> chat_id = -100123456789
-    Public kanal: username orqali get_chat
+    Faqat standart format:
+    https://t.me/MyChannel/123
+    https://t.me/c/123456789/55
     """
-    url = url.strip()
-    if not url.startswith("http"):
-        url = "https://" + url
+    url = url.replace("https://", "").replace("http://", "")
+    parts = url.split("/")
 
-    try:
-        # private: t.me/c/123456789/55
-        if "t.me/c/" in url:
-            parts = url.split("/")
-            # ... /c/<internal_id>/<post_id>
-            for i, p in enumerate(parts):
-                if p == "c":
-                    internal_id = parts[i+1]
-                    break
-            chat_id = int("-100" + internal_id)
-            return chat_id
+    # private: t.me/c/123456789/55
+    if parts[1] == "c":
+        return int("-100" + parts[2])
 
-        # public: t.me/ChannelName/123
-        if "t.me/" in url:
-            parts = url.split("/")
-            # https: '' 't.me' 'ChannelName' 'post_id?'
-            # username har doim 't.me' dan keyingi qism
-            idx = parts.index("t.me")
-            if len(parts) <= idx + 1:
-                return None
-            username = parts[idx + 1]
-            if username.startswith("+"):
-                return None
-            chat = bot.get_chat(username)
-            return chat.id
-
-    except Exception as e:
-        print("extract_channel_id_from_link error:", e)
-        return None
-
-    return None
+    # public: t.me/MyChannel/123
+    username = parts[1]
+    chat = bot.get_chat(username)
+    return chat.id
 
 # ==========================
-#   MAJBURIY / IXT.IYORIY OBUNA ADMIN CALLBACK
+#   MAJBURIY OBUNA ADMIN CALLBACK
 # ==========================
 @bot.callback_query_handler(func=lambda c: c.data in [
     "req_add", "opt_add", "req_edit", "req_delete", "req_back",
     "del_req_list", "del_opt_list",
-    "req_add_post"
+    "req_add_public", "req_add_private"
 ])
 def req_menu_handler(call):
     data = call.data
@@ -223,19 +199,24 @@ def req_menu_handler(call):
     if data == "req_add":
         kb = InlineKeyboardMarkup()
         kb.add(
-            InlineKeyboardButton("📨 Post havolasi bilan", callback_data="req_add_post")
+            InlineKeyboardButton("📢 Ommaviy kanal", callback_data="req_add_public"),
+            InlineKeyboardButton("🔒 Shaxsiy kanal", callback_data="req_add_private")
         )
         kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="req_back"))
         bot.edit_message_text(
-            "➕ Majburiy kanal qo‘shish usulini tanlang:",
+            "➕ Majburiy kanal qo‘shish turini tanlang:",
             call.message.chat.id,
             call.message.message_id,
             reply_markup=kb
         )
         return
 
-    if data == "req_add_post":
-        start_required_add_post(call)
+    if data == "req_add_public":
+        start_required_add_public(call)
+        return
+
+    if data == "req_add_private":
+        start_required_add_private(call)
         return
 
     if data == "opt_add":
@@ -259,28 +240,29 @@ def req_menu_handler(call):
         return
 
 # ==========================
-#   MAJBURIY KANAL QO‘SHISH — POST HAVOLASI BILAN
+#   OMMAVIY KANAL QO‘SHISH
 # ==========================
-def start_required_add_post(call):
+def start_required_add_public(call):
     uid = call.from_user.id
-    admin_state[uid] = "req_add_post_link"
+    admin_state[uid] = "req_add_public_link"
     admin_data[uid] = {}
     bot.edit_message_text(
-        "➕ Majburiy kanal qo‘shish (POST havolasi orqali) boshlandi.\n\n"
-        "Iltimos kanal postining havolasini yuboring:\n"
-        "Masalan: https://t.me/ChannelName/123 yoki https://t.me/c/123456789/55",
+        "📢 Ommaviy kanal qo‘shish boshlandi.\n\n"
+        "Iltimos kanal POST havolasini yuboring:\n"
+        "Masalan: https://t.me/MyChannel/123",
         call.message.chat.id,
         call.message.message_id
     )
 
-@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) == "req_add_post_link")
-def req_add_post_link_handler(message):
+@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) == "req_add_public_link")
+def req_add_public_link_handler(message):
     uid = message.from_user.id
     url = message.text.strip()
 
-    channel_id = extract_channel_id_from_link(url)
-    if not channel_id:
-        bot.reply_to(message, "❌ Havoladan kanalni aniqlab bo‘lmadi. Qayta urinib ko‘ring.")
+    try:
+        channel_id = extract_channel_id_from_post(url)
+    except:
+        bot.reply_to(message, "❌ Havola noto‘g‘ri. Faqat POST havolasi yuboring.")
         return
 
     try:
@@ -288,105 +270,59 @@ def req_add_post_link_handler(message):
         if member.status not in ["administrator", "creator"]:
             bot.reply_to(message, "❌ Bot kanalda admin emas. Avval botni kanalga admin qiling.")
             return
-    except Exception as e:
-        print("req_add_post_link_handler get_chat_member error:", e)
-        bot.reply_to(message, "❌ Kanalga ulanib bo‘lmadi. Havola yoki kanal sozlamalarini tekshiring.")
+    except:
+        bot.reply_to(message, "❌ Kanalga ulanib bo‘lmadi.")
         return
 
     admin_data[uid]["channel_id"] = channel_id
     admin_state[uid] = "req_add_invite_url"
     bot.reply_to(
         message,
-        "🔗 Endi foydalanuvchilar kanalga qo‘shiladigan asosiy havolani yuboring.\n"
-        "Masalan: https://t.me/ChannelName"
+        "🔗 Endi foydalanuvchilar kanalga qo‘shiladigan asosiy havolani yuboring."
     )
 
-@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) == "req_add_invite_url")
-def req_get_invite_url(message):
-    uid = message.from_user.id
-    invite_url = message.text.strip()
-
-    admin_data[uid]["invite_url"] = invite_url
-    admin_state[uid] = "req_add_count"
-    bot.reply_to(message, "👥 Ushbu kanalga qancha obunachi qo‘shmoqchisiz? (masalan: 500)")
-
-@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) == "req_add_count")
-def req_get_count(message):
-    uid = message.from_user.id
-    try:
-        count = int(message.text)
-        if count <= 0:
-            raise ValueError
-    except:
-        bot.reply_to(message, "❌ Miqdor faqat musbat raqam bo‘lishi kerak.")
-        return
-
-    admin_data[uid]["count"] = count
-    admin_state[uid] = "req_add_name"
-
-    kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("🤖 Avto nomlash", callback_data="req_auto_name"))
-
-    bot.reply_to(
-        message,
-        "📛 Kanal uchun nom kiriting yoki pastdagi \"Avto nomlash\" tugmasini bosing:",
-        reply_markup=kb
-    )
-
-@bot.callback_query_handler(func=lambda c: c.data == "req_auto_name")
-def req_auto_name(call):
+# ==========================
+#   SHAXSIY KANAL QO‘SHISH
+# ==========================
+def start_required_add_private(call):
     uid = call.from_user.id
-    if admin_state.get(uid) != "req_add_name":
-        return
-
-    count_existing = required_channels_collection.count_documents({})
-    auto_name = f"{count_existing + 1}-Kanal"
-
-    data = admin_data.get(uid, {})
-    new_channel = {
-        "type": "required",
-        "name": auto_name,
-        "channel_id": data["channel_id"],
-        "url": data["invite_url"],
-        "count": data["count"],
-        "joined_count": 0,
-        "auto": True,
-        "completed": False
-    }
-
-    required_channels_collection.insert_one(new_channel)
-
+    admin_state[uid] = "req_add_private_link"
+    admin_data[uid] = {}
     bot.edit_message_text(
-        f"✅ <b>{auto_name}</b> muvaffaqiyatli qo‘shildi!",
+        "🔒 Shaxsiy kanal qo‘shish boshlandi.\n\n"
+        "Iltimos kanal POST havolasini yuboring:\n"
+        "Masalan: https://t.me/c/123456789/55",
         call.message.chat.id,
         call.message.message_id
     )
 
-    admin_state[uid] = None
-    admin_data[uid] = {}
-
-@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) == "req_add_name")
-def req_custom_name(message):
+@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) == "req_add_private_link")
+def req_add_private_link_handler(message):
     uid = message.from_user.id
-    name = message.text.strip()
-    data = admin_data.get(uid, {})
+    url = message.text.strip()
 
-    new_channel = {
-        "type": "required",
-        "name": name,
-        "channel_id": data["channel_id"],
-        "url": data["invite_url"],
-        "count": data["count"],
-        "joined_count": 0,
-        "auto": False,
-        "completed": False
-    }
+    try:
+        channel_id = extract_channel_id_from_post(url)
+    except:
+        bot.reply_to(message, "❌ Havola noto‘g‘ri. Faqat POST havolasi yuboring.")
+        return
 
-    required_channels_collection.insert_one(new_channel)
+    try:
+        member = bot.get_chat_member(channel_id, bot.get_me().id)
+        if member.status not in ["administrator", "creator"]:
+            bot.reply_to(message, "❌ Bot kanalda admin emas.")
+            return
+    except:
+        bot.reply_to(message, "❌ Kanalga ulanib bo‘lmadi.")
+        return
 
-    bot.reply_to(message, f"✅ <b>{name}</b> majburiy kanal sifatida qo‘shildi!")
-    admin_state[uid] = None
-    admin_data[uid] = {}
+    admin_data[uid]["channel_id"] = channel_id
+    admin_state[uid] = "req_add_invite_url"
+    bot.reply_to(
+        message,
+        "🔗 Endi foydalanuvchilar kanalga qo‘shiladigan asosiy havolani yuboring."
+    )
+    
 # ==========================
 #   IXT.IYORIY KANAL QO‘SHISH (SODDA)
 # ==========================
@@ -745,7 +681,7 @@ def is_subscribed(member):
     if member.status in ["member", "administrator", "creator"]:
         return True
 
-    if member.status == "restricted" and not getattr(member, "is_member", True):
+    if member.status == "restricted":
         return True
 
     if member.status == "left" and getattr(member, "until_date", 0) != 0:
@@ -851,11 +787,27 @@ def send_content(chat_id, item):
         bot.send_video(chat_id, item["file_id"], caption=item.get("caption"))
     elif item["type"] == "document":
         bot.send_document(chat_id, item["file_id"], caption=item.get("caption"))
+
 # ==========================
 #   /start (ODDIY)
 # ==========================
-@bot.message_handler(func=lambda m: m.text == "/start")
-def start(message):
+@bot.message_handler(commands=['start'])
+def start_handler(message):
+    args = message.text.split()
+
+    # /start
+    if len(args) == 1:
+        return show_main_menu(message)
+
+    # /start check_CODE
+    if args[1].startswith("check_"):
+        return check_start(message)
+
+    # /start CODE
+    return start_with_code(message)
+
+
+def show_main_menu(message):
     markup = InlineKeyboardMarkup()
     markup.add(
         InlineKeyboardButton("📝 Bot Haqida", callback_data="about"),
@@ -869,10 +821,10 @@ def start(message):
         reply_markup=markup
     )
 
+
 # ==========================
-#   START-LINK CONTENT VIEW (MAJBURIY OBUNA BILAN)
+#   /start CODE (MAJBURIY OBUNA BILAN)
 # ==========================
-@bot.message_handler(func=lambda m: m.text.startswith("/start ") and not m.text.startswith("/start check_") and len(m.text.split()) == 2)
 def start_with_code(message):
     code = message.text.split()[1]
 
@@ -893,10 +845,10 @@ def start_with_code(message):
     handle_join_counts(message.from_user.id)
     send_content(message.chat.id, item)
 
+
 # ==========================
 #   /start check_CODE — URL TEKSHIRISH
 # ==========================
-@bot.message_handler(func=lambda m: m.text.startswith("/start check_"))
 def check_start(message):
     code = message.text.replace("/start check_", "")
 
@@ -913,6 +865,7 @@ def check_start(message):
             "❌ Hali hammasiga obuna bo‘lmadingiz!",
             reply_markup=kb
         )
+
 
 # ==========================
 #   CALLBACK HANDLER (ABOUT / CREATOR / CLOSE)
@@ -972,6 +925,7 @@ def callback(call):
             reply_markup=markup
         )
 
+
 # ==========================
 #   MULTI-UPLOAD CONTENT SAVING
 # ==========================
@@ -1018,6 +972,7 @@ def save_multi(message):
     link = f"https://t.me/{BOT_USERNAME}?start={code}"
     bot.reply_to(message, link)
 
+
 # ==========================
 #   XAVFSIZLIK: BOT ADMIN EMAS BO‘LSA KANALNI O‘CHIRISH
 # ==========================
@@ -1059,6 +1014,7 @@ def security_check():
         time.sleep(20)
 
 threading.Thread(target=security_check).start()
+
 
 # ==========================
 #   RUN SERVER
