@@ -156,7 +156,7 @@ def stop(message):
         bot.reply_to(message, "✅ Barcha kontentlar qabul qilindi.", reply_markup=admin_panel())
 
 # ==========================
-#   KANAL POST HAVOLASI PARSER (STANDART FORMAT)
+#   KANAL POST HAVOLASI PARSER (100% TO‘G‘RI)
 # ==========================
 def extract_channel_id_from_post(url: str):
     """
@@ -168,13 +168,17 @@ def extract_channel_id_from_post(url: str):
     parts = url.split("/")
 
     # private: t.me/c/123456789/55
-    if parts[1] == "c":
-        return int("-100" + parts[2])
+    if len(parts) >= 5 and parts[2] == "t.me" and parts[3] == "c":
+        internal_id = parts[4]
+        return int("-100" + internal_id)
 
-    # public: t.me/MyChannel/123
-    username = parts[1]
-    chat = bot.get_chat(username)
-    return chat.id
+    # public: t.me/ChannelName/123
+    if len(parts) >= 4 and parts[2] == "t.me":
+        username = parts[3]
+        chat = bot.get_chat(username)
+        return chat.id
+
+    return None
 
 # ==========================
 #   MAJBURIY OBUNA ADMIN CALLBACK
@@ -265,6 +269,10 @@ def req_add_public_link_handler(message):
         bot.reply_to(message, "❌ Havola noto‘g‘ri. Faqat POST havolasi yuboring.")
         return
 
+    if not channel_id:
+        bot.reply_to(message, "❌ Havola noto‘g‘ri. Faqat POST havolasi yuboring.")
+        return
+
     try:
         member = bot.get_chat_member(channel_id, bot.get_me().id)
         if member.status not in ["administrator", "creator"]:
@@ -307,6 +315,10 @@ def req_add_private_link_handler(message):
         bot.reply_to(message, "❌ Havola noto‘g‘ri. Faqat POST havolasi yuboring.")
         return
 
+    if not channel_id:
+        bot.reply_to(message, "❌ Havola noto‘g‘ri. Faqat POST havolasi yuboring.")
+        return
+
     try:
         member = bot.get_chat_member(channel_id, bot.get_me().id)
         if member.status not in ["administrator", "creator"]:
@@ -322,9 +334,9 @@ def req_add_private_link_handler(message):
         message,
         "🔗 Endi foydalanuvchilar kanalga qo‘shiladigan asosiy havolani yuboring."
     )
-    
+
 # ==========================
-#   IXT.IYORIY KANAL QO‘SHISH (SODDA)
+#   IXT.IYORIY KANAL QO‘SHISH (VALIDATSIYA BILAN)
 # ==========================
 def start_optional_add(call):
     uid = call.from_user.id
@@ -332,7 +344,7 @@ def start_optional_add(call):
     admin_data[uid] = {}
     bot.edit_message_text(
         "➕ Ixtiyoriy kanal qo‘shish boshlandi.\n\n"
-        "Iltimos kanal havolasini yuboring:",
+        "Iltimos kanal havolasini yuboring (http:// yoki https:// bilan boshlansin):",
         call.message.chat.id,
         call.message.message_id
     )
@@ -341,6 +353,11 @@ def start_optional_add(call):
 def opt_get_url(message):
     uid = message.from_user.id
     url = message.text.strip()
+
+    # URL VALIDATSIYA
+    if not (url.startswith("http://") or url.startswith("https://")):
+        bot.reply_to(message, "❌ Iltimos to‘g‘ri havola yuboring (http:// yoki https:// bilan boshlansin).")
+        return
 
     admin_data[uid]["url"] = url
     admin_state[uid] = "opt_add_name"
@@ -364,18 +381,191 @@ def opt_get_name(message):
     admin_data[uid] = {}
 
 # ==========================
-#   MAJBURIY KANALLARNI TAHRIRLASH (STATISTIKA BILAN)
+#   TAHRIRLASH MENYUSI (MAJBURIY + IXT.IYORIY)
 # ==========================
 def start_required_edit(call):
-    channels = list(required_channels_collection.find({}))
+    req = list(required_channels_collection.find({}))
+    opt = list(optional_channels_collection.find({}))
 
-    if not channels:
-        bot.edit_message_text(
-            "❌ Majburiy kanallar yo‘q.",
-            call.message.chat.id,
-            call.message.message_id
+    kb = InlineKeyboardMarkup()
+
+    if req:
+        kb.add(InlineKeyboardButton("📛 Majburiy kanallar", callback_data="edit_req_list"))
+    if opt:
+        kb.add(InlineKeyboardButton("📛 Ixtiyoriy kanallar", callback_data="edit_opt_list"))
+
+    kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="req_back"))
+
+    bot.edit_message_text(
+        "✏️ Tahrirlash bo‘limi:\nQaysi turdagi kanallarni tahrirlaysiz?",
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=kb
+    )
+
+@bot.callback_query_handler(func=lambda c: c.data == "edit_opt_list")
+def edit_optional_list(call):
+    channels = list(optional_channels_collection.find({}))
+
+    kb = InlineKeyboardMarkup()
+
+    for ch in channels:
+        kb.add(
+            InlineKeyboardButton(
+                f"{ch['name']}",
+                callback_data=f"edit_opt:{ch['_id']}"
+            )
         )
+
+    kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="req_edit"))
+
+    bot.edit_message_text(
+        "✏️ Tahrirlash uchun ixtiyoriy kanalni tanlang:",
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=kb
+    )
+
+@bot.callback_query_handler(func=lambda c: c.data == "edit_opt_list")
+def edit_optional_list(call):
+    channels = list(optional_channels_collection.find({}))
+
+    kb = InlineKeyboardMarkup()
+
+    for ch in channels:
+        kb.add(
+            InlineKeyboardButton(
+                f"{ch['name']}",
+                callback_data=f"edit_opt:{ch['_id']}"
+            )
+        )
+
+    kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="req_edit"))
+
+    bot.edit_message_text(
+        "✏️ Tahrirlash uchun ixtiyoriy kanalni tanlang:",
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=kb
+    )
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("edit_opt:"))
+def edit_optional_menu(call):
+    ch_id = call.data.split(":")[1]
+    ch = optional_channels_collection.find_one({"_id": ObjectId(ch_id)})
+
+    kb = InlineKeyboardMarkup()
+    kb.add(InlineKeyboardButton("📛 Nomni o‘zgartirish", callback_data=f"opt_edit_name:{ch_id}"))
+    kb.add(InlineKeyboardButton("🔗 Havolani o‘zgartirish", callback_data=f"opt_edit_url:{ch_id}"))
+    kb.add(InlineKeyboardButton("🗑 O‘chirish", callback_data=f"opt_delete:{ch_id}"))
+    kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="edit_opt_list"))
+
+    bot.edit_message_text(
+        f"✏️ <b>{ch['name']}</b> ixtiyoriy kanalini tahrirlash:",
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=kb
+    )
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("opt_edit_name:"))
+def opt_edit_name_start(call):
+    uid = call.from_user.id
+    ch_id = call.data.split(":")[1]
+
+    admin_state[uid] = "opt_edit_name_state"
+    admin_data[uid] = {"ch_id": ch_id}
+
+    bot.edit_message_text(
+        "📛 Yangi nomni kiriting:",
+        call.message.chat.id,
+        call.message.message_id
+    )
+
+@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) == "opt_edit_name_state")
+def opt_edit_name_save(message):
+    uid = message.from_user.id
+    new_name = message.text.strip()
+    ch_id = admin_data[uid]["ch_id"]
+
+    optional_channels_collection.update_one(
+        {"_id": ObjectId(ch_id)},
+        {"$set": {"name": new_name}}
+    )
+
+    bot.reply_to(message, f"✅ Nom <b>{new_name}</b> ga o‘zgartirildi!")
+    admin_state[uid] = None
+    admin_data[uid] = {}
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("opt_edit_url:"))
+def opt_edit_url_start(call):
+    uid = call.from_user.id
+    ch_id = call.data.split(":")[1]
+
+    admin_state[uid] = "opt_edit_url_state"
+    admin_data[uid] = {"ch_id": ch_id}
+
+    bot.edit_message_text(
+        "🔗 Yangi havolani yuboring (http:// yoki https:// bilan boshlansin):",
+        call.message.chat.id,
+        call.message.message_id
+    )
+
+@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) == "opt_edit_url_state")
+def opt_edit_url_save(message):
+    uid = message.from_user.id
+    new_url = message.text.strip()
+
+    if not (new_url.startswith("http://") or new_url.startswith("https://")):
+        bot.reply_to(message, "❌ Havola noto‘g‘ri. http:// yoki https:// bilan boshlansin.")
         return
+
+    ch_id = admin_data[uid]["ch_id"]
+
+    optional_channels_collection.update_one(
+        {"_id": ObjectId(ch_id)},
+        {"$set": {"url": new_url}}
+    )
+
+    bot.reply_to(message, "✅ Havola yangilandi!")
+    admin_state[uid] = None
+    admin_data[uid] = {}
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("opt_delete:"))
+def opt_delete_confirm(call):
+    ch_id = call.data.split(":")[1]
+    ch = optional_channels_collection.find_one({"_id": ObjectId(ch_id)})
+
+    kb = InlineKeyboardMarkup()
+    kb.add(
+        InlineKeyboardButton("❌ Ha, o‘chirish", callback_data=f"opt_delete_yes:{ch_id}"),
+        InlineKeyboardButton("🔙 Bekor qilish", callback_data="edit_opt_list")
+    )
+
+    bot.edit_message_text(
+        f"⚠️ <b>{ch['name']}</b> kanalini o‘chirmoqchimisiz?",
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=kb
+    )
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("opt_delete_yes:"))
+def opt_delete_yes(call):
+    ch_id = call.data.split(":")[1]
+
+    optional_channels_collection.delete_one({"_id": ObjectId(ch_id)})
+
+    bot.edit_message_text(
+        "✅ Ixtiyoriy kanal o‘chirildi!",
+        call.message.chat.id,
+        call.message.message_id
+    )
+
+# ==========================
+#   MAJBURIY KANALLARNI TAHRIRLASH (STATISTIKA BILAN)
+# ==========================
+@bot.callback_query_handler(func=lambda c: c.data == "edit_req_list")
+def edit_required_list(call):
+    channels = list(required_channels_collection.find({}))
 
     kb = InlineKeyboardMarkup()
 
@@ -387,14 +577,15 @@ def start_required_edit(call):
             )
         )
 
-    kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="req_back"))
+    kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="req_edit"))
 
     bot.edit_message_text(
-        "✏️ Tahrirlash uchun kanalni tanlang:",
+        "✏️ Tahrirlash uchun majburiy kanalni tanlang:",
         call.message.chat.id,
         call.message.message_id,
         reply_markup=kb
     )
+
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("edit_req:"))
 def edit_required_menu(call):
@@ -428,7 +619,8 @@ def edit_required_menu(call):
         InlineKeyboardButton("👥 Miqdorni o‘zgartirish", callback_data=f"edit_count:{ch_id}")
     )
 
-    kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="req_edit"))
+    kb.add(InlineKeyboardButton("🗑 O‘chirish", callback_data=f"del_req:{ch_id}"))
+    kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="edit_req_list"))
 
     bot.edit_message_text(
         text,
@@ -437,13 +629,15 @@ def edit_required_menu(call):
         reply_markup=kb
     )
 
+
 # ==========================
-#   NOMNI O‘ZGARTIRISH
+#   MAJBURIY KANAL NOMINI O‘ZGARTIRISH
 # ==========================
 @bot.callback_query_handler(func=lambda c: c.data.startswith("edit_name:"))
 def edit_name_start(call):
     uid = call.from_user.id
     ch_id = call.data.split(":")[1]
+
     admin_state[uid] = "edit_name_state"
     admin_data[uid] = {"ch_id": ch_id}
 
@@ -452,6 +646,7 @@ def edit_name_start(call):
         call.message.chat.id,
         call.message.message_id
     )
+
 
 @bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) == "edit_name_state")
 def edit_name_save(message):
@@ -468,13 +663,15 @@ def edit_name_save(message):
     admin_state[uid] = None
     admin_data[uid] = {}
 
+
 # ==========================
-#   HAVOLANI O‘ZGARTIRISH
+#   MAJBURIY KANAL HAVOLASINI O‘ZGARTIRISH
 # ==========================
 @bot.callback_query_handler(func=lambda c: c.data.startswith("edit_url:"))
 def edit_url_start(call):
     uid = call.from_user.id
     ch_id = call.data.split(":")[1]
+
     admin_state[uid] = "edit_url_state"
     admin_data[uid] = {"ch_id": ch_id}
 
@@ -483,6 +680,7 @@ def edit_url_start(call):
         call.message.chat.id,
         call.message.message_id
     )
+
 
 @bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) == "edit_url_state")
 def edit_url_save(message):
@@ -499,13 +697,15 @@ def edit_url_save(message):
     admin_state[uid] = None
     admin_data[uid] = {}
 
+
 # ==========================
-#   MIQDORNI O‘ZGARTIRISH
+#   MAJBURIY KANAL MIQDORINI O‘ZGARTIRISH
 # ==========================
 @bot.callback_query_handler(func=lambda c: c.data.startswith("edit_count:"))
 def edit_count_start(call):
     uid = call.from_user.id
     ch_id = call.data.split(":")[1]
+
     admin_state[uid] = "edit_count_state"
     admin_data[uid] = {"ch_id": ch_id}
 
@@ -515,9 +715,11 @@ def edit_count_start(call):
         call.message.message_id
     )
 
+
 @bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) == "edit_count_state")
 def edit_count_save(message):
     uid = message.from_user.id
+
     try:
         new_count = int(message.text)
         if new_count <= 0:
@@ -537,73 +739,10 @@ def edit_count_save(message):
     admin_state[uid] = None
     admin_data[uid] = {}
 
+
 # ==========================
-#   MAJBURIY / IXT.IYORIY O‘CHIRISH
+#   MAJBURIY KANALNI O‘CHIRISH
 # ==========================
-def start_required_delete(call):
-    req = list(required_channels_collection.find({}))
-    opt = list(optional_channels_collection.find({}))
-
-    kb = InlineKeyboardMarkup()
-
-    if req:
-        kb.add(InlineKeyboardButton("📛 Majburiy kanallar", callback_data="del_req_list"))
-    if opt:
-        kb.add(InlineKeyboardButton("📛 Ixtiyoriy kanallar", callback_data="del_opt_list"))
-
-    kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="req_back"))
-
-    bot.edit_message_text(
-        "🗑 O‘chirish bo‘limi:\nQaysi turdagi kanallarni o‘chirmoqchisiz?",
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=kb
-    )
-
-def delete_required_list(call):
-    channels = list(required_channels_collection.find({}))
-
-    kb = InlineKeyboardMarkup()
-
-    for ch in channels:
-        kb.add(
-            InlineKeyboardButton(
-                f"{ch['name']} (ID: {ch['channel_id']})",
-                callback_data=f"del_req:{ch['_id']}"
-            )
-        )
-
-    kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="req_delete"))
-
-    bot.edit_message_text(
-        "🗑 O‘chirish uchun majburiy kanalni tanlang:",
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=kb
-    )
-
-def delete_optional_list(call):
-    channels = list(optional_channels_collection.find({}))
-
-    kb = InlineKeyboardMarkup()
-
-    for ch in channels:
-        kb.add(
-            InlineKeyboardButton(
-                f"{ch['name']}",
-                callback_data=f"del_opt:{ch['_id']}"
-            )
-        )
-
-    kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="req_delete"))
-
-    bot.edit_message_text(
-        "🗑 O‘chirish uchun ixtiyoriy kanalni tanlang:",
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=kb
-    )
-
 @bot.callback_query_handler(func=lambda c: c.data.startswith("del_req:"))
 def delete_required_confirm(call):
     ch_id = call.data.split(":")[1]
@@ -612,7 +751,7 @@ def delete_required_confirm(call):
     kb = InlineKeyboardMarkup()
     kb.add(
         InlineKeyboardButton("❌ Ha, o‘chirish", callback_data=f"del_req_yes:{ch_id}"),
-        InlineKeyboardButton("🔙 Bekor qilish", callback_data="del_req_list")
+        InlineKeyboardButton("🔙 Bekor qilish", callback_data="edit_req_list")
     )
 
     bot.edit_message_text(
@@ -622,23 +761,6 @@ def delete_required_confirm(call):
         reply_markup=kb
     )
 
-@bot.callback_query_handler(func=lambda c: c.data.startswith("del_opt:"))
-def delete_optional_confirm(call):
-    ch_id = call.data.split(":")[1]
-    ch = optional_channels_collection.find_one({"_id": ObjectId(ch_id)})
-
-    kb = InlineKeyboardMarkup()
-    kb.add(
-        InlineKeyboardButton("❌ Ha, o‘chirish", callback_data=f"del_opt_yes:{ch_id}"),
-        InlineKeyboardButton("🔙 Bekor qilish", callback_data="del_opt_list")
-    )
-
-    bot.edit_message_text(
-        f"⚠️ <b>{ch['name']}</b> kanalini o‘chirmoqchimisiz?",
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=kb
-    )
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("del_req_yes:"))
 def delete_required_yes(call):
@@ -646,33 +768,12 @@ def delete_required_yes(call):
 
     required_channels_collection.delete_one({"_id": ObjectId(ch_id)})
 
-    auto_channels = list(required_channels_collection.find({"auto": True}))
-    auto_channels.sort(key=lambda x: x["name"])
-
-    for i, ch in enumerate(auto_channels):
-        new_name = f"{i+1}-Kanal"
-        required_channels_collection.update_one(
-            {"_id": ch["_id"]},
-            {"$set": {"name": new_name}}
-        )
-
     bot.edit_message_text(
-        "✅ Kanal o‘chirildi!",
+        "✅ Majburiy kanal o‘chirildi!",
         call.message.chat.id,
         call.message.message_id
     )
 
-@bot.callback_query_handler(func=lambda c: c.data.startswith("del_opt_yes:"))
-def delete_optional_yes(call):
-    ch_id = call.data.split(":")[1]
-
-    optional_channels_collection.delete_one({"_id": ObjectId(ch_id)})
-
-    bot.edit_message_text(
-        "✅ Ixtiyoriy kanal o‘chirildi!",
-        call.message.chat.id,
-        call.message.message_id
-    )
 
 # ==========================
 #   REQUEST-TO-JOIN STATUSLARINI HAM OBUNA DEB HISOBLASH
@@ -689,6 +790,7 @@ def is_subscribed(member):
 
     return False
 
+
 # ==========================
 #   MAJBURIY OBUNA TEKSHIRISH
 # ==========================
@@ -704,6 +806,7 @@ def check_required_subs(user_id):
             return False
 
     return True
+
 
 # ==========================
 #   OBUNACHI SANASH (joined_count)
@@ -750,6 +853,7 @@ def handle_join_counts(user_id):
         except Exception as e:
             print("handle_join_counts error:", e)
 
+
 # ==========================
 #   MAJBURIY OBUNA OYNASI (URL TEKSHIRISH TUGMASI BILAN)
 # ==========================
@@ -775,6 +879,7 @@ def get_required_keyboard(user_id, code):
 
     return kb
 
+
 # ==========================
 #   KONTENT YUBORISH
 # ==========================
@@ -789,7 +894,7 @@ def send_content(chat_id, item):
         bot.send_document(chat_id, item["file_id"], caption=item.get("caption"))
 
 # ==========================
-#   /start (ODDIY)
+#   /start HANDLER
 # ==========================
 @bot.message_handler(commands=['start'])
 def start_handler(message):
@@ -807,6 +912,9 @@ def start_handler(message):
     return start_with_code(message)
 
 
+# ==========================
+#   ASOSIY MENYU
+# ==========================
 def show_main_menu(message):
     markup = InlineKeyboardMarkup()
     markup.add(
@@ -833,6 +941,7 @@ def start_with_code(message):
         bot.send_message(message.chat.id, "❌ Kontent topilmadi yoki o‘chirilgan.")
         return
 
+    # Obuna tekshirish
     if not check_required_subs(message.from_user.id):
         kb = get_required_keyboard(message.from_user.id, code)
         bot.send_message(
@@ -842,7 +951,10 @@ def start_with_code(message):
         )
         return
 
+    # Obuna bo‘lgan → sanash
     handle_join_counts(message.from_user.id)
+
+    # Kontent yuborish
     send_content(message.chat.id, item)
 
 
@@ -874,6 +986,7 @@ def check_start(message):
 def callback(call):
     data = call.data
 
+    # Xabarni yopish
     if data.startswith("close"):
         try:
             bot.delete_message(call.message.chat.id, call.message.message_id)
@@ -881,6 +994,7 @@ def callback(call):
             pass
         return
 
+    # Bot haqida
     if data == "about":
         markup = InlineKeyboardMarkup()
         markup.add(
@@ -904,6 +1018,7 @@ def callback(call):
             reply_markup=markup
         )
 
+    # Yaratuvchi
     if data == "creator":
         markup = InlineKeyboardMarkup()
         markup.add(
@@ -927,7 +1042,7 @@ def callback(call):
 
 
 # ==========================
-#   MULTI-UPLOAD CONTENT SAVING
+#   MULTI-UPLOAD CONTENT SAQLASH
 # ==========================
 @bot.message_handler(content_types=['text', 'photo', 'video', 'document'])
 def save_multi(message):
@@ -987,9 +1102,11 @@ def security_check():
                 try:
                     member = bot.get_chat_member(channel_id, bot.get_me().id)
 
+                    # Bot admin bo‘lsa → davom
                     if member.status in ["administrator", "creator"]:
                         continue
 
+                    # Bot admin emas → kanalni o‘chir
                     required_channels_collection.delete_one({"_id": ch["_id"]})
 
                     bot.send_message(
