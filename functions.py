@@ -521,3 +521,20 @@ def cancel_text_copy(bot, message):
     if uid in text_copy_state:
         text_copy_state[uid] = {}
     bot.reply_to(message, "❌ Text Copy bekor qilindi.")
+
+# ... barcha funksiyalar ...
+
+def video_edit_callback(bot, call):
+    """Video edit callback'larini boshqarish"""
+    data = call.data
+    
+    if data == "video_edit_image":
+        start_image_upload(bot, call)
+    elif data == "video_edit_video":
+        start_video_upload(bot, call)
+    elif data == "video_edit_delete_image":
+        delete_image(bot, call)
+    elif data == "video_edit_status":
+        show_status(bot, call)
+    elif data == "video_edit_back":
+        back_to_video_edit(bot, call)
