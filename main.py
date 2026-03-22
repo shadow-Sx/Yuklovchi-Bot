@@ -144,8 +144,8 @@ def admin_buttons(message):
         bot.reply_to(message, "Qaysi tarzda kontent qo'shmoqchisiz?", reply_markup=kb)
 
     elif text == "Habar Yuborish":
-        admin_state[uid] = "send_forward"
-        bot.reply_to(message, "📨 Xabar yuboring:")
+        admin_state[uid] = "send_broadcast"
+        bot.reply_to(message, "📨 Xabar yuboring (forward qilingan xabar ham bo'lishi mumkin):")
 
     elif text == "Majburi Obuna":
         bot.send_message(message.chat.id, "📌 Majburiy obuna bo'limi:", reply_markup=required_menu())
@@ -160,11 +160,25 @@ def admin_buttons(message):
 
     elif text == "Rasm Sozlash":
         admin_state[uid] = "set_main_image"
-        bot.reply_to(message, "🖼 Majburiy obuna xabari uchun rasm yuboring:")
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton("🗑 Rasmni o'chirish", callback_data="delete_main_image"))
+        bot.reply_to(message, "🖼 Majburiy obuna xabari uchun rasm yuboring yoki /delete_pic orqali rasmni o'chirishingiz mumkin.", reply_markup=kb)
 
     elif text == "🔙 Chiqish":
         admin_state[uid] = None
         bot.send_message(uid, "<b>Admin paneldan chiqdingiz.</b>", reply_markup=telebot.types.ReplyKeyboardRemove())
+
+# ==========================
+#   DELETE MAIN IMAGE
+# ==========================
+@bot.callback_query_handler(func=lambda c: c.data == "delete_main_image")
+def delete_main_image(call):
+    bot_settings_collection.delete_one({"setting": "main_image"})
+    bot.edit_message_text(
+        "✅ Rasm o'chirildi! Endi majburiy obuna xabari rasm bilan chiqmaydi.",
+        call.message.chat.id,
+        call.message.message_id
+    )
 
 # ==========================
 #   MAIN IMAGE SETUP
@@ -294,13 +308,13 @@ def referral_back(call):
     )
 
 # ==========================
-#   BROADCAST
+#   BROADCAST (HAMMA NARSA UCHUN)
 # ==========================
-@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) == "send_forward")
-def send_forward_handler(message):
+@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) == "send_broadcast")
+def send_broadcast_handler(message):
     uid = message.from_user.id
     
-    admin_data[uid] = {"forward_message": message}
+    admin_data[uid] = {"broadcast_message": message}
     
     kb = InlineKeyboardMarkup()
     kb.add(
@@ -313,7 +327,7 @@ def send_forward_handler(message):
 @bot.callback_query_handler(func=lambda c: c.data == "broadcast_confirm")
 def broadcast_confirm(call):
     uid = call.from_user.id
-    message = admin_data.get(uid, {}).get("forward_message")
+    message = admin_data.get(uid, {}).get("broadcast_message")
     
     if not message:
         bot.answer_callback_query(call.id, "❌ Xato yuz berdi!")
@@ -331,14 +345,25 @@ def broadcast_confirm(call):
     
     for u in users:
         try:
-            if message.content_type == "text":
-                bot.send_message(u["user_id"], message.text)
+            # Forward qilingan xabarni yuborish
+            if message.forward_from or message.forward_from_chat:
+                bot.copy_message(u["user_id"], message.chat.id, message.message_id)
+            elif message.content_type == "text":
+                bot.send_message(u["user_id"], message.text, parse_mode="HTML")
             elif message.content_type == "photo":
                 bot.send_photo(u["user_id"], message.photo[-1].file_id, caption=message.caption)
             elif message.content_type == "video":
                 bot.send_video(u["user_id"], message.video.file_id, caption=message.caption)
             elif message.content_type == "document":
                 bot.send_document(u["user_id"], message.document.file_id, caption=message.caption)
+            elif message.content_type == "sticker":
+                bot.send_sticker(u["user_id"], message.sticker.file_id)
+            elif message.content_type == "audio":
+                bot.send_audio(u["user_id"], message.audio.file_id, caption=message.caption)
+            elif message.content_type == "voice":
+                bot.send_voice(u["user_id"], message.voice.file_id)
+            elif message.content_type == "video_note":
+                bot.send_video_note(u["user_id"], message.video_note.file_id)
             else:
                 bot.copy_message(u["user_id"], message.chat.id, message.message_id)
             success += 1
@@ -365,6 +390,162 @@ def broadcast_cancel(call):
     )
     admin_state[uid] = None
     admin_data[uid] = {}
+
+# ==========================
+#   MULTI MODE TANLASH
+# ==========================
+@bot.callback_query_handler(func=lambda c: c.data in ["multi_mode_single", "multi_mode_batch"])
+def multi_mode_select(call):
+    uid = call.from_user.id
+    if uid != ADMIN_ID:
+        return
+
+    if call.data == "multi_mode_single":
+        admin_state[uid] = "multi_add_single"
+        bot.edit_message_text(
+            "📥 Hamma videolarni tashlang.\n\nHar bir kontent uchun alohida havola beriladi.\n"
+            "Tugagach /stop deb yozing.",
+            call.message.chat.id,
+            call.message.message_id
+        )
+    else:
+        admin_state[uid] = "multi_add_batch"
+        admin_data[uid] = {"batch": []}
+        bot.edit_message_text(
+            "📥 Barcha habarni yuboring va oxirida /stop bosing.\n\n"
+            "Barchasi uchun bitta havola beriladi.",
+            call.message.chat.id,
+            call.message.message_id
+        )
+
+# ==========================
+#   MULTI-UPLOAD CONTENT SAVING
+# ==========================
+@bot.message_handler(content_types=['text', 'photo', 'video', 'document'])
+def save_multi(message):
+    uid = message.from_user.id
+    state = admin_state.get(uid)
+
+    if state not in ["multi_add_single", "multi_add_batch"]:
+        return
+
+    time.sleep(0.7)
+
+    if state == "multi_add_single":
+        code = generate_code()
+
+        if message.content_type == "video":
+            content = {
+                "type": "video",
+                "file_id": message.video.file_id,
+                "caption": message.caption,
+                "code": code,
+                "order": 1
+            }
+        elif message.content_type == "photo":
+            content = {
+                "type": "photo",
+                "file_id": message.photo[-1].file_id,
+                "caption": message.caption,
+                "code": code,
+                "order": 1
+            }
+        elif message.content_type == "document":
+            content = {
+                "type": "document",
+                "file_id": message.document.file_id,
+                "caption": message.caption,
+                "code": code,
+                "order": 1
+            }
+        else:
+            content = {
+                "type": "text",
+                "text": message.text,
+                "code": code,
+                "order": 1
+            }
+
+        contents.insert_one(content)
+        link = f"https://t.me/{BOT_USERNAME}?start={code}"
+        bot.reply_to(message, link)
+
+    elif state == "multi_add_batch":
+        batch = admin_data.get(uid, {}).get("batch", [])
+        order = len(batch) + 1
+
+        if message.content_type == "video":
+            item = {
+                "type": "video",
+                "file_id": message.video.file_id,
+                "caption": message.caption,
+                "order": order
+            }
+        elif message.content_type == "photo":
+            item = {
+                "type": "photo",
+                "file_id": message.photo[-1].file_id,
+                "caption": message.caption,
+                "order": order
+            }
+        elif message.content_type == "document":
+            item = {
+                "type": "document",
+                "file_id": message.document.file_id,
+                "caption": message.caption,
+                "order": order
+            }
+        else:
+            item = {
+                "type": "text",
+                "text": message.text,
+                "order": order
+            }
+
+        batch.append(item)
+        admin_data[uid]["batch"] = batch
+        bot.reply_to(message, f"✅ {order}-kontent qabul qilindi.")
+
+# ==========================
+#   /stop
+# ==========================
+@bot.message_handler(commands=['stop'])
+def stop(message):
+    uid = message.from_user.id
+    state = admin_state.get(uid)
+
+    if state == "multi_add_batch":
+        batch = admin_data.get(uid, {}).get("batch", [])
+        if not batch:
+            bot.reply_to(message, "❌ Hech qanday kontent yuborilmadi.")
+            admin_state[uid] = None
+            admin_data[uid] = {}
+            return
+
+        code = generate_code()
+        docs = []
+        for item in batch:
+            docs.append({
+                "type": item["type"],
+                "file_id": item.get("file_id"),
+                "caption": item.get("caption"),
+                "text": item.get("text"),
+                "code": code,
+                "order": item["order"]
+            })
+
+        contents.insert_many(docs)
+
+        link = f"https://t.me/{BOT_USERNAME}?start={code}"
+        bot.reply_to(message, link)
+
+        admin_state[uid] = None
+        admin_data[uid] = {}
+        return
+
+    if state == "multi_add_single":
+        admin_state[uid] = None
+        bot.reply_to(message, "<b>✅ Barcha kontentlar qabul qilindi.</b>", reply_markup=admin_panel())
 
 # ==========================
 #   MAJBURIY KANAL QO'SHISH
@@ -925,7 +1106,6 @@ def start(message):
 def start_with_code(message):
     code = message.text.split()[1]
     
-    # Referalni tekshirish (faqat yangi userlar uchun)
     if code.startswith("ref_"):
         ref_name = code.replace("ref_", "")
         referral = referrals_collection.find_one({"name": ref_name})
@@ -937,17 +1117,15 @@ def start_with_code(message):
                     {"$set": {"referral_name": ref_name}},
                     upsert=True
                 )
-        # Oddiy start javobini qaytarish
         start(message)
         return
 
     items = list(contents.find({"code": code}).sort("order", 1))
     if not items:
-        bot.send_message(message.chat.id, "❌ Kontent topilmadi.")
+        bot.send_message(message.chat.id, "")
         return
 
     if not check_required_subs(message.from_user.id):
-        # Rasmli xabar yuborish
         settings = bot_settings_collection.find_one({"setting": "main_image"})
         if settings and settings.get("image_id"):
             bot.send_photo(
@@ -1024,135 +1202,6 @@ def callback(call):
             ),
             reply_markup=markup
         )
-
-# ==========================
-#   MULTI-UPLOAD CONTENT SAVING
-# ==========================
-@bot.message_handler(content_types=['text', 'photo', 'video', 'document'])
-def save_multi(message):
-    uid = message.from_user.id
-    state = admin_state.get(uid)
-
-    if state not in ["multi_add_single", "multi_add_batch"]:
-        return
-
-    time.sleep(0.7)
-
-    if state == "multi_add_single":
-        code = generate_code()
-
-        if message.content_type == "video":
-            content = {
-                "type": "video",
-                "file_id": message.video.file_id,
-                "caption": message.caption,
-                "code": code,
-                "order": 1
-            }
-        elif message.content_type == "photo":
-            content = {
-                "type": "photo",
-                "file_id": message.photo[-1].file_id,
-                "caption": message.caption,
-                "code": code,
-                "order": 1
-            }
-        elif message.content_type == "document":
-            content = {
-                "type": "document",
-                "file_id": message.document.file_id,
-                "caption": message.caption,
-                "code": code,
-                "order": 1
-            }
-        else:
-            content = {
-                "type": "text",
-                "text": message.text,
-                "code": code,
-                "order": 1
-            }
-
-        contents.insert_one(content)
-        link = f"https://t.me/{BOT_USERNAME}?start={code}"
-        bot.reply_to(message, link)
-
-    elif state == "multi_add_batch":
-        batch = admin_data.get(uid, {}).get("batch", [])
-        order = len(batch) + 1
-
-        if message.content_type == "video":
-            item = {
-                "type": "video",
-                "file_id": message.video.file_id,
-                "caption": message.caption,
-                "order": order
-            }
-        elif message.content_type == "photo":
-            item = {
-                "type": "photo",
-                "file_id": message.photo[-1].file_id,
-                "caption": message.caption,
-                "order": order
-            }
-        elif message.content_type == "document":
-            item = {
-                "type": "document",
-                "file_id": message.document.file_id,
-                "caption": message.caption,
-                "order": order
-            }
-        else:
-            item = {
-                "type": "text",
-                "text": message.text,
-                "order": order
-            }
-
-        batch.append(item)
-        admin_data[uid]["batch"] = batch
-        bot.reply_to(message, f"✅ {order}-kontent qabul qilindi.")
-
-# ==========================
-#   /stop
-# ==========================
-@bot.message_handler(commands=['stop'])
-def stop(message):
-    uid = message.from_user.id
-    state = admin_state.get(uid)
-
-    if state == "multi_add_batch":
-        batch = admin_data.get(uid, {}).get("batch", [])
-        if not batch:
-            bot.reply_to(message, "❌ Hech qanday kontent yuborilmadi.")
-            admin_state[uid] = None
-            admin_data[uid] = {}
-            return
-
-        code = generate_code()
-        docs = []
-        for item in batch:
-            docs.append({
-                "type": item["type"],
-                "file_id": item.get("file_id"),
-                "caption": item.get("caption"),
-                "text": item.get("text"),
-                "code": code,
-                "order": item["order"]
-            })
-
-        contents.insert_many(docs)
-
-        link = f"https://t.me/{BOT_USERNAME}?start={code}"
-        bot.reply_to(message, link)
-
-        admin_state[uid] = None
-        admin_data[uid] = {}
-        return
-
-    if state == "multi_add_single":
-        admin_state[uid] = None
-        bot.reply_to(message, "<b>✅ Barcha kontentlar qabul qilindi.</b>", reply_markup=admin_panel())
 
 # ==========================
 #   RUN SERVER
