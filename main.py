@@ -32,10 +32,10 @@ db = client["xanimelar_bot"]
 contents = db["contents"]
 required_channels_collection = db["required_channels"]
 optional_channels_collection = db["optional_channels"]
-required_stats_collection = db["required_stats"]
 users_collection = db["users"]
 referrals_collection = db["referrals"]
 user_referrals_collection = db["user_referrals"]
+bot_settings_collection = db["bot_settings"]
 
 # ==========================
 #   FLASK SERVER
@@ -54,7 +54,7 @@ def webhook():
     return "OK", 200
 
 # ==========================
-#   SELF-PING (Render Free rejimi uxlamasin)
+#   SELF-PING
 # ==========================
 def keep_alive():
     while True:
@@ -89,22 +89,20 @@ def admin_panel():
         KeyboardButton("Referal")
     )
     markup.row(
+        KeyboardButton("Rasm Sozlash"),
         KeyboardButton("🔙 Chiqish")
     )
     return markup
 
 def required_menu():
-    kb = InlineKeyboardMarkup()
+    kb = InlineKeyboardMarkup(row_width=2)
     kb.add(
-        InlineKeyboardButton("➕ Majburi qo'shish", callback_data="req_add"),
+        InlineKeyboardButton("➕ Majburiy qo'shish", callback_data="req_add"),
         InlineKeyboardButton("➕ Ixtiyoriy qo'shish", callback_data="opt_add")
     )
     kb.add(
         InlineKeyboardButton("✏️ Tahrirlash", callback_data="req_edit"),
         InlineKeyboardButton("🗑 O'chirish", callback_data="req_delete")
-    )
-    kb.add(
-        InlineKeyboardButton("🖼 Rasm sozlash", callback_data="req_image")
     )
     kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="req_back"))
     return kb
@@ -130,7 +128,7 @@ def admin_start(message):
 #   ADMIN BUTTONS
 # ==========================
 @bot.message_handler(func=lambda m: m.from_user.id == ADMIN_ID and m.text in [
-    "Cantent Qo'shish", "Majburi Obuna", "Habar Yuborish", "Referal", "🔙 Chiqish"
+    "Cantent Qo'shish", "Majburi Obuna", "Habar Yuborish", "Referal", "Rasm Sozlash", "🔙 Chiqish"
 ])
 def admin_buttons(message):
     uid = message.from_user.id
@@ -160,9 +158,29 @@ def admin_buttons(message):
         )
         bot.send_message(uid, "Salom Admin bugun nima qilamiz?", reply_markup=kb)
 
+    elif text == "Rasm Sozlash":
+        admin_state[uid] = "set_main_image"
+        bot.reply_to(message, "🖼 Majburiy obuna xabari uchun rasm yuboring:")
+
     elif text == "🔙 Chiqish":
         admin_state[uid] = None
         bot.send_message(uid, "<b>Admin paneldan chiqdingiz.</b>", reply_markup=telebot.types.ReplyKeyboardRemove())
+
+# ==========================
+#   MAIN IMAGE SETUP
+# ==========================
+@bot.message_handler(content_types=['photo'])
+def save_main_image(message):
+    uid = message.from_user.id
+    if admin_state.get(uid) == "set_main_image":
+        file_id = message.photo[-1].file_id
+        bot_settings_collection.update_one(
+            {"setting": "main_image"},
+            {"$set": {"image_id": file_id}},
+            upsert=True
+        )
+        bot.reply_to(message, "✅ Rasm saqlandi! Endi majburiy obuna xabari rasm bilan chiqadi.")
+        admin_state[uid] = None
 
 # ==========================
 #   REFERRAL SYSTEM
@@ -276,7 +294,7 @@ def referral_back(call):
     )
 
 # ==========================
-#   BROADCAST WITH CONFIRMATION
+#   BROADCAST
 # ==========================
 @bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) == "send_forward")
 def send_forward_handler(message):
@@ -349,66 +367,9 @@ def broadcast_cancel(call):
     admin_data[uid] = {}
 
 # ==========================
-#   REQUIRED CHANNEL IMAGE SETUP
-# ==========================
-@bot.callback_query_handler(func=lambda c: c.data == "req_image")
-def req_image_setup(call):
-    channels = list(required_channels_collection.find({}))
-    if not channels:
-        bot.edit_message_text(
-            "❌ Majburiy kanallar yo'q. Avval kanal qo'shing.",
-            call.message.chat.id,
-            call.message.message_id
-        )
-        return
-    
-    kb = InlineKeyboardMarkup()
-    for ch in channels:
-        status = "✅" if ch.get("has_image") else "❌"
-        kb.add(InlineKeyboardButton(
-            f"{status} {ch['name']}",
-            callback_data=f"set_image:{ch['_id']}"
-        ))
-    kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="req_back"))
-    
-    bot.edit_message_text(
-        "🖼 Rasm sozlash:\nRasm o'rnatilgan kanallar ✅ belgisi bilan ko'rsatilgan.",
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=kb
-    )
-
-@bot.callback_query_handler(func=lambda c: c.data.startswith("set_image:"))
-def set_image_start(call):
-    ch_id = call.data.split(":")[1]
-    admin_state[call.from_user.id] = f"set_image_{ch_id}"
-    
-    bot.edit_message_text(
-        "📸 Iltimos, rasm yuboring:",
-        call.message.chat.id,
-        call.message.message_id
-    )
-
-@bot.message_handler(content_types=['photo'])
-def save_channel_image(message):
-    uid = message.from_user.id
-    state = admin_state.get(uid)
-    
-    if state and state.startswith("set_image_"):
-        ch_id = state.replace("set_image_", "")
-        file_id = message.photo[-1].file_id
-        
-        required_channels_collection.update_one(
-            {"_id": ObjectId(ch_id)},
-            {"$set": {"image_id": file_id, "has_image": True}}
-        )
-        
-        bot.reply_to(message, "✅ Rasm saqlandi!")
-        admin_state[uid] = None
-
-# ==========================
 #   MAJBURIY KANAL QO'SHISH
 # ==========================
+@bot.callback_query_handler(func=lambda c: c.data == "req_add")
 def start_required_add(call):
     uid = call.from_user.id
     admin_state[uid] = "req_add_id"
@@ -475,18 +436,16 @@ def req_auto_name(call):
         return
 
     auto_channels = list(required_channels_collection.find({"auto": True}))
-    auto_channels.sort(key=lambda x: x["name"])
+    auto_channels.sort(key=lambda x: x.get("name", ""))
     auto_name = f"{len(auto_channels) + 1}-Kanal"
 
     data = admin_data.get(uid, {})
     new_channel = {
-        "type": "required",
         "name": auto_name,
         "channel_id": data["channel_id"],
         "url": data["url"],
         "count": data["count"],
-        "auto": True,
-        "has_image": False
+        "auto": True
     }
 
     required_channels_collection.insert_one(new_channel)
@@ -507,13 +466,11 @@ def req_custom_name(message):
     data = admin_data.get(uid, {})
 
     new_channel = {
-        "type": "required",
         "name": name,
         "channel_id": data["channel_id"],
         "url": data["url"],
         "count": data["count"],
-        "auto": False,
-        "has_image": False
+        "auto": False
     }
 
     required_channels_collection.insert_one(new_channel)
@@ -525,6 +482,7 @@ def req_custom_name(message):
 # ==========================
 #   IXTIYORIY KANAL QO'SHISH
 # ==========================
+@bot.callback_query_handler(func=lambda c: c.data == "opt_add")
 def start_optional_add(call):
     uid = call.from_user.id
     admin_state[uid] = "opt_add_name"
@@ -549,11 +507,8 @@ def opt_get_url(message):
     url = message.text.strip()
 
     new_channel = {
-        "type": "optional",
         "name": name,
-        "channel_id": None,
-        "url": url,
-        "auto": False
+        "url": url
     }
 
     optional_channels_collection.insert_one(new_channel)
@@ -563,8 +518,9 @@ def opt_get_url(message):
     admin_data[uid] = {}
 
 # ==========================
-#   MAJBURIY KANALLARNI TAHRIRLASH
+#   TAHRIRLASH
 # ==========================
+@bot.callback_query_handler(func=lambda c: c.data == "req_edit")
 def start_required_edit(call):
     channels = list(required_channels_collection.find({}))
 
@@ -580,7 +536,7 @@ def start_required_edit(call):
     for ch in channels:
         kb.add(
             InlineKeyboardButton(
-                f"{ch['name']} (ID: {ch['channel_id']})",
+                f"{ch['name']}",
                 callback_data=f"edit_req:{ch['_id']}"
             )
         )
@@ -602,27 +558,14 @@ def edit_required_menu(call):
         bot.answer_callback_query(call.id, "❌ Kanal topilmadi.")
         return
 
-    status_text = "❓ Holat noma'lum"
-    try:
-        member = bot.get_chat_member(channel["channel_id"], bot.get_me().id)
-        status_text = f"📡 Bot holati: <b>{member.status}</b>"
-    except:
-        status_text = "⚠️ Bot kanalga ulanolmadi"
-
     kb = InlineKeyboardMarkup()
-    if channel.get("auto"):
-        kb.add(InlineKeyboardButton("📛 Nom (o'zgartirib bo'lmaydi)", callback_data="none"))
-    else:
-        kb.add(InlineKeyboardButton("📛 Nomni o'zgartirish", callback_data=f"edit_name:{ch_id}"))
-
-    kb.add(
-        InlineKeyboardButton("🔗 Havolani o'zgartirish", callback_data=f"edit_url:{ch_id}"),
-        InlineKeyboardButton("👥 Miqdorni o'zgartirish", callback_data=f"edit_count:{ch_id}")
-    )
+    kb.add(InlineKeyboardButton("📛 Nomni o'zgartirish", callback_data=f"edit_name:{ch_id}"))
+    kb.add(InlineKeyboardButton("🔗 Havolani o'zgartirish", callback_data=f"edit_url:{ch_id}"))
+    kb.add(InlineKeyboardButton("👥 Miqdorni o'zgartirish", callback_data=f"edit_count:{ch_id}"))
     kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="req_edit"))
 
     bot.edit_message_text(
-        f"✏️ <b>{channel['name']}</b> kanalini tahrirlash:\n{status_text}",
+        f"✏️ <b>{channel['name']}</b> kanalini tahrirlash:",
         call.message.chat.id,
         call.message.message_id,
         reply_markup=kb
@@ -632,7 +575,7 @@ def edit_required_menu(call):
 def edit_name_start(call):
     uid = call.from_user.id
     ch_id = call.data.split(":")[1]
-    admin_state[uid] = "edit_name_state"
+    admin_state[uid] = f"edit_name_{ch_id}"
     admin_data[uid] = {"ch_id": ch_id}
 
     bot.edit_message_text(
@@ -641,7 +584,7 @@ def edit_name_start(call):
         call.message.message_id
     )
 
-@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) == "edit_name_state")
+@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) and admin_state.get(m.from_user.id).startswith("edit_name_"))
 def edit_name_save(message):
     uid = message.from_user.id
     name = message.text.strip()
@@ -660,7 +603,7 @@ def edit_name_save(message):
 def edit_url_start(call):
     uid = call.from_user.id
     ch_id = call.data.split(":")[1]
-    admin_state[uid] = "edit_url_state"
+    admin_state[uid] = f"edit_url_{ch_id}"
     admin_data[uid] = {"ch_id": ch_id}
 
     bot.edit_message_text(
@@ -669,7 +612,7 @@ def edit_url_start(call):
         call.message.message_id
     )
 
-@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) == "edit_url_state")
+@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) and admin_state.get(m.from_user.id).startswith("edit_url_"))
 def edit_url_save(message):
     uid = message.from_user.id
     url = message.text.strip()
@@ -688,7 +631,7 @@ def edit_url_save(message):
 def edit_count_start(call):
     uid = call.from_user.id
     ch_id = call.data.split(":")[1]
-    admin_state[uid] = "edit_count_state"
+    admin_state[uid] = f"edit_count_{ch_id}"
     admin_data[uid] = {"ch_id": ch_id}
 
     bot.edit_message_text(
@@ -697,7 +640,7 @@ def edit_count_start(call):
         call.message.message_id
     )
 
-@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) == "edit_count_state")
+@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) and admin_state.get(m.from_user.id).startswith("edit_count_"))
 def edit_count_save(message):
     uid = message.from_user.id
     try:
@@ -720,6 +663,7 @@ def edit_count_save(message):
 # ==========================
 #   O'CHIRISH
 # ==========================
+@bot.callback_query_handler(func=lambda c: c.data == "req_delete")
 def start_required_delete(call):
     req = list(required_channels_collection.find({}))
     opt = list(optional_channels_collection.find({}))
@@ -738,13 +682,14 @@ def start_required_delete(call):
         reply_markup=kb
     )
 
+@bot.callback_query_handler(func=lambda c: c.data == "del_req_list")
 def delete_required_list(call):
     channels = list(required_channels_collection.find({}))
     kb = InlineKeyboardMarkup()
     for ch in channels:
         kb.add(
             InlineKeyboardButton(
-                f"{ch['name']} (ID: {ch['channel_id']})",
+                f"{ch['name']}",
                 callback_data=f"del_req:{ch['_id']}"
             )
         )
@@ -757,13 +702,14 @@ def delete_required_list(call):
         reply_markup=kb
     )
 
+@bot.callback_query_handler(func=lambda c: c.data == "del_opt_list")
 def delete_optional_list(call):
     channels = list(optional_channels_collection.find({}))
     kb = InlineKeyboardMarkup()
     for ch in channels:
         kb.add(
             InlineKeyboardButton(
-                f"{ch['name']} (ID: {ch['channel_id']})",
+                f"{ch['name']}",
                 callback_data=f"del_opt:{ch['_id']}"
             )
         )
@@ -818,7 +764,7 @@ def delete_required_yes(call):
     required_channels_collection.delete_one({"_id": ObjectId(ch_id)})
 
     auto_channels = list(required_channels_collection.find({"auto": True}))
-    auto_channels.sort(key=lambda x: x["name"])
+    auto_channels.sort(key=lambda x: x.get("name", ""))
     for i, ch in enumerate(auto_channels):
         new_name = f"{i+1}-Kanal"
         required_channels_collection.update_one(
@@ -841,6 +787,15 @@ def delete_optional_yes(call):
         "✅ Ixtiyoriy kanal o'chirildi!",
         call.message.chat.id,
         call.message.message_id
+    )
+
+@bot.callback_query_handler(func=lambda c: c.data == "req_back")
+def back_to_required_menu(call):
+    bot.edit_message_text(
+        "📌 Majburiy obuna bo'limi:",
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=required_menu()
     )
 
 # ==========================
@@ -915,7 +870,7 @@ def send_content(chat_id, items, is_batch=False):
         
         warn = bot.send_message(
             chat_id,
-            "<b>⚠️ESLATMA⚠️\n❗Ushbu habarlar 5 daqiqadan so'ng ochiriladi tezda saqlash joyingizga saqlab oling</b>"
+            "<b>⚠️ ESLATMA ⚠️\n\n❗ Ushbu habarlar 5 daqiqadan so'ng o'chiriladi. Tezda saqlash joyingizga saqlab oling!</b>"
         )
         schedule_delete(chat_id, warn.message_id, 300)
     
@@ -935,7 +890,7 @@ def send_content(chat_id, items, is_batch=False):
                 schedule_delete(chat_id, msg.message_id, 300)
                 warn = bot.send_message(
                     chat_id,
-                    "<b>⚠️ESLATMA⚠️\n❗Ushbu habar 5 daqiqadan so'ng ochiriladi tezda saqlash joyingizga saqlab oling</b>"
+                    "<b>⚠️ ESLATMA ⚠️\n\n❗ Ushbu habar 5 daqiqadan so'ng o'chiriladi. Tezda saqlash joyingizga saqlab oling!</b>"
                 )
                 schedule_delete(chat_id, warn.message_id, 300)
 
@@ -970,17 +925,20 @@ def start(message):
 def start_with_code(message):
     code = message.text.split()[1]
     
-    # Referalni tekshirish
+    # Referalni tekshirish (faqat yangi userlar uchun)
     if code.startswith("ref_"):
         ref_name = code.replace("ref_", "")
         referral = referrals_collection.find_one({"name": ref_name})
         if referral:
-            user_referrals_collection.update_one(
-                {"user_id": message.from_user.id},
-                {"$set": {"referral_name": ref_name}},
-                upsert=True
-            )
-        bot.send_message(message.chat.id, "✅ Referal orqali tizimga qo'shildingiz!")
+            user = users_collection.find_one({"user_id": message.from_user.id})
+            if not user:
+                user_referrals_collection.update_one(
+                    {"user_id": message.from_user.id},
+                    {"$set": {"referral_name": ref_name}},
+                    upsert=True
+                )
+        # Oddiy start javobini qaytarish
+        start(message)
         return
 
     items = list(contents.find({"code": code}).sort("order", 1))
@@ -988,32 +946,20 @@ def start_with_code(message):
         bot.send_message(message.chat.id, "❌ Kontent topilmadi.")
         return
 
-    user = users_collection.find_one({"user_id": message.from_user.id})
-    is_new_user = user is None or user.get("first_visit", True)
-    
-    if is_new_user:
-        users_collection.update_one(
-            {"user_id": message.from_user.id},
-            {"$set": {"first_visit": False}},
-            upsert=True
-        )
-        for item in items:
-            send_content(message.chat.id, [item], False)
-        return
-
     if not check_required_subs(message.from_user.id):
-        channel = required_channels_collection.find_one({"has_image": True})
-        if channel and channel.get("image_id"):
+        # Rasmli xabar yuborish
+        settings = bot_settings_collection.find_one({"setting": "main_image"})
+        if settings and settings.get("image_id"):
             bot.send_photo(
                 message.chat.id,
-                channel["image_id"],
-                caption="Animeni yuklab olish uchun quyidagi kanallarga obuna bo'ling:",
+                settings["image_id"],
+                caption="📢 <b>Animeni yuklab olish uchun quyidagi kanallarga obuna bo'ling:</b>",
                 reply_markup=get_required_keyboard(message.from_user.id, code)
             )
         else:
             bot.send_message(
                 message.chat.id,
-                "Animeni yuklab olish uchun quyidagi kanallarga obuna bo'ling:",
+                "📢 <b>Animeni yuklab olish uchun quyidagi kanallarga obuna bo'ling:</b>",
                 reply_markup=get_required_keyboard(message.from_user.id, code)
             )
         return
@@ -1207,40 +1153,6 @@ def stop(message):
     if state == "multi_add_single":
         admin_state[uid] = None
         bot.reply_to(message, "<b>✅ Barcha kontentlar qabul qilindi.</b>", reply_markup=admin_panel())
-
-# ==========================
-#   SECURITY CHECK
-# ==========================
-def security_check():
-    while True:
-        try:
-            channels = list(required_channels_collection.find({}))
-            for ch in channels:
-                channel_id = ch["channel_id"]
-                try:
-                    member = bot.get_chat_member(channel_id, bot.get_me().id)
-                    if member.status in ["administrator", "creator"]:
-                        continue
-
-                    required_channels_collection.delete_one({"_id": ch["_id"]})
-                    bot.send_message(
-                        ADMIN_ID,
-                        f"⚠️ <b>{ch['name']}</b> kanalidan chiqarildim.\n"
-                        f"Kanal majburiy ro'yxatdan o'chirildi."
-                    )
-                except:
-                    required_channels_collection.delete_one({"_id": ch["_id"]})
-                    bot.send_message(
-                        ADMIN_ID,
-                        f"⚠️ <b>{ch['name']}</b> kanaliga ulanib bo'lmadi.\n"
-                        f"Kanal majburiy ro'yxatdan o'chirildi."
-                    )
-        except Exception as e:
-            print("Security error:", e)
-
-        time.sleep(20)
-
-threading.Thread(target=security_check).start()
 
 # ==========================
 #   RUN SERVER
