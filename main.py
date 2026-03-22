@@ -1043,13 +1043,13 @@ def send_content(chat_id, items, is_batch=False):
                 msg = bot.send_document(chat_id, item["file_id"], caption=item.get("caption"))
             
             if msg:
-                schedule_delete(chat_id, msg.message_id, 1200)
+                schedule_delete(chat_id, msg.message_id, 300)
         
         warn = bot.send_message(
             chat_id,
-            "<b>⚠️ ESLATMA ⚠️\n\n❗ Ushbu habarlar 20 daqiqadan so'ng o'chiriladi. Tezda saqlash joyingizga saqlab oling!</b>"
+            "<b>⚠️ ESLATMA ⚠️\n\n❗ Ushbu habarlar 5 daqiqadan so'ng o'chiriladi. Tezda saqlash joyingizga saqlab oling!</b>"
         )
-        schedule_delete(chat_id, warn.message_id, 1200)
+        schedule_delete(chat_id, warn.message_id, 300)
     
     else:
         for item in items:
@@ -1064,12 +1064,12 @@ def send_content(chat_id, items, is_batch=False):
                 msg = bot.send_document(chat_id, item["file_id"], caption=item.get("caption"))
             
             if msg:
-                schedule_delete(chat_id, msg.message_id, 1200)
+                schedule_delete(chat_id, msg.message_id, 300)
                 warn = bot.send_message(
                     chat_id,
-                    "<b>⚠️ ESLATMA ⚠️\n\n❗ Ushbu habar 20 daqiqadan so'ng o'chiriladi. Tezda saqlash joyingizga saqlab oling!</b>"
+                    "<b>⚠️ ESLATMA ⚠️\n\n❗ Ushbu habar 5 daqiqadan so'ng o'chiriladi. Tezda saqlash joyingizga saqlab oling!</b>"
                 )
-                schedule_delete(chat_id, warn.message_id, 1200)
+                schedule_delete(chat_id, warn.message_id, 300)
 
 # ==========================
 #   /start
