@@ -13,6 +13,10 @@ from telebot.types import (
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 
+# Import functions
+import functions
+from functions import video_edit_state, text_copy_state
+
 # ==========================
 #   TOKEN & SETTINGS
 # ==========================
@@ -36,6 +40,7 @@ users_collection = db["users"]
 referrals_collection = db["referrals"]
 user_referrals_collection = db["user_referrals"]
 bot_settings_collection = db["bot_settings"]
+required_bots_collection = db["required_bots"]  # Majburiy botlar uchun
 
 # ==========================
 #   FLASK SERVER
@@ -90,6 +95,10 @@ def admin_panel():
     )
     markup.row(
         KeyboardButton("Rasm Sozlash"),
+        KeyboardButton("Video Edit")
+    )
+    markup.row(
+        KeyboardButton("Text Copy"),
         KeyboardButton("🔙 Chiqish")
     )
     return markup
@@ -97,14 +106,29 @@ def admin_panel():
 def required_menu():
     kb = InlineKeyboardMarkup(row_width=2)
     kb.add(
-        InlineKeyboardButton("➕ Majburiy qo'shish", callback_data="req_add"),
-        InlineKeyboardButton("➕ Ixtiyoriy qo'shish", callback_data="opt_add")
+        InlineKeyboardButton("➕ Majburiy kanal", callback_data="req_add"),
+        InlineKeyboardButton("➕ Ixtiyoriy kanal", callback_data="opt_add")
     )
     kb.add(
-        InlineKeyboardButton("✏️ Tahrirlash", callback_data="req_edit"),
-        InlineKeyboardButton("🗑 O'chirish", callback_data="req_delete")
+        InlineKeyboardButton("🤖 Majburiy bot", callback_data="bot_add_menu"),
+        InlineKeyboardButton("✏️ Tahrirlash", callback_data="req_edit")
     )
-    kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="req_back"))
+    kb.add(
+        InlineKeyboardButton("🗑 O'chirish", callback_data="req_delete"),
+        InlineKeyboardButton("🔙 Orqaga", callback_data="req_back")
+    )
+    return kb
+
+def required_bots_menu():
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        InlineKeyboardButton("➕ Bot qo'shish", callback_data="bot_add"),
+        InlineKeyboardButton("✏️ Tahrirlash", callback_data="bot_edit")
+    )
+    kb.add(
+        InlineKeyboardButton("🗑 O'chirish", callback_data="bot_delete"),
+        InlineKeyboardButton("🔙 Orqaga", callback_data="bot_back")
+    )
     return kb
 
 # ==========================
@@ -128,7 +152,8 @@ def admin_start(message):
 #   ADMIN BUTTONS
 # ==========================
 @bot.message_handler(func=lambda m: m.from_user.id == ADMIN_ID and m.text in [
-    "Cantent Qo'shish", "Majburi Obuna", "Habar Yuborish", "Referal", "Rasm Sozlash", "🔙 Chiqish"
+    "Cantent Qo'shish", "Majburi Obuna", "Habar Yuborish", "Referal", 
+    "Rasm Sozlash", "Video Edit", "Text Copy", "🔙 Chiqish"
 ])
 def admin_buttons(message):
     uid = message.from_user.id
@@ -163,6 +188,12 @@ def admin_buttons(message):
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("🗑 Rasmni o'chirish", callback_data="delete_main_image"))
         bot.reply_to(message, "🖼 Majburiy obuna xabari uchun rasm yuboring:", reply_markup=kb)
+
+    elif text == "Video Edit":
+        functions.start_video_edit(bot, message)
+
+    elif text == "Text Copy":
+        functions.start_text_copy(bot, uid)
 
     elif text == "🔙 Chiqish":
         admin_state[uid] = None
@@ -695,7 +726,218 @@ def opt_get_url(message):
     admin_data[uid] = {}
 
 # ==========================
-#   TAHRIRLASH
+#   MAJBURIY BOT QO'SHISH
+# ==========================
+@bot.callback_query_handler(func=lambda c: c.data == "bot_add_menu")
+def bot_add_menu(call):
+    bot.edit_message_text(
+        "🤖 Majburiy botlar bo'limi:",
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=required_bots_menu()
+    )
+
+@bot.callback_query_handler(func=lambda c: c.data == "bot_add")
+def start_bot_add(call):
+    uid = call.from_user.id
+    admin_state[uid] = "bot_add_name"
+    admin_data[uid] = {}
+    bot.edit_message_text(
+        "➕ Majburiy bot qo'shish boshlandi.\n\nIltimos bot username ni yuboring (masalan: @example_bot):",
+        call.message.chat.id,
+        call.message.message_id
+    )
+
+@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) == "bot_add_name")
+def bot_add_username(message):
+    uid = message.from_user.id
+    username = message.text.strip().replace("@", "")
+    
+    if not username:
+        bot.reply_to(message, "❌ Noto'g'ri username formati!")
+        return
+    
+    admin_data[uid]["bot_username"] = username
+    admin_state[uid] = "bot_add_count"
+    bot.reply_to(message, "👥 Ushbu botga qancha foydalanuvchi start bosgan?")
+
+@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) == "bot_add_count")
+def bot_add_count(message):
+    uid = message.from_user.id
+    try:
+        count = int(message.text)
+    except:
+        bot.reply_to(message, "❌ Miqdor faqat raqam bo'lishi kerak.")
+        return
+    
+    admin_data[uid]["count"] = count
+    admin_state[uid] = "bot_add_name"
+    
+    kb = InlineKeyboardMarkup()
+    kb.add(InlineKeyboardButton("🤖 Avto nomlash", callback_data="bot_auto_name"))
+    
+    bot.reply_to(message, "📛 Bot uchun nom kiriting yoki pastdagi tugmani bosing:", reply_markup=kb)
+
+@bot.callback_query_handler(func=lambda c: c.data == "bot_auto_name")
+def bot_auto_name(call):
+    uid = call.from_user.id
+    if admin_state.get(uid) != "bot_add_name":
+        return
+    
+    auto_bots = list(required_bots_collection.find({}))
+    auto_name = f"{len(auto_bots) + 1}-Bot"
+    
+    data = admin_data.get(uid, {})
+    new_bot = {
+        "name": auto_name,
+        "bot_username": data["bot_username"],
+        "count": data["count"],
+        "auto": True
+    }
+    
+    required_bots_collection.insert_one(new_bot)
+    
+    bot.edit_message_text(
+        f"✅ <b>{auto_name}</b> muvaffaqiyatli qo'shildi!",
+        call.message.chat.id,
+        call.message.message_id
+    )
+    
+    admin_state[uid] = None
+    admin_data[uid] = {}
+
+@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) == "bot_add_name")
+def bot_custom_name(message):
+    uid = message.from_user.id
+    name = message.text.strip()
+    data = admin_data.get(uid, {})
+    
+    new_bot = {
+        "name": name,
+        "bot_username": data["bot_username"],
+        "count": data["count"],
+        "auto": False
+    }
+    
+    required_bots_collection.insert_one(new_bot)
+    
+    bot.reply_to(message, f"✅ <b>{name}</b> muvaffaqiyatli qo'shildi!")
+    admin_state[uid] = None
+    admin_data[uid] = {}
+
+# ==========================
+#   BOT TAHRIRLASH VA O'CHIRISH
+# ==========================
+@bot.callback_query_handler(func=lambda c: c.data == "bot_edit")
+def bot_edit_list(call):
+    bots = list(required_bots_collection.find({}))
+    if not bots:
+        bot.edit_message_text(
+            "❌ Majburiy botlar yo'q.",
+            call.message.chat.id,
+            call.message.message_id
+        )
+        return
+    
+    kb = InlineKeyboardMarkup()
+    for b in bots:
+        kb.add(InlineKeyboardButton(b["name"], callback_data=f"edit_bot:{b['_id']}"))
+    kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="bot_back"))
+    
+    bot.edit_message_text(
+        "✏️ Tahrirlash uchun botni tanlang:",
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=kb
+    )
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("edit_bot:"))
+def edit_bot_menu(call):
+    bot_id = call.data.split(":")[1]
+    bot_info = required_bots_collection.find_one({"_id": ObjectId(bot_id)})
+    
+    if not bot_info:
+        bot.answer_callback_query(call.id, "❌ Bot topilmadi.")
+        return
+    
+    kb = InlineKeyboardMarkup()
+    kb.add(InlineKeyboardButton("📛 Nomni o'zgartirish", callback_data=f"edit_bot_name:{bot_id}"))
+    kb.add(InlineKeyboardButton("👥 Miqdorni o'zgartirish", callback_data=f"edit_bot_count:{bot_id}"))
+    kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="bot_edit"))
+    
+    bot.edit_message_text(
+        f"✏️ <b>{bot_info['name']}</b> botini tahrirlash:\n\n"
+        f"🤖 Username: @{bot_info['bot_username']}\n"
+        f"👥 Obunachilar: {bot_info['count']}",
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=kb,
+        parse_mode="HTML"
+    )
+
+@bot.callback_query_handler(func=lambda c: c.data == "bot_delete")
+def bot_delete_list(call):
+    bots = list(required_bots_collection.find({}))
+    if not bots:
+        bot.edit_message_text(
+            "❌ Majburiy botlar yo'q.",
+            call.message.chat.id,
+            call.message.message_id
+        )
+        return
+    
+    kb = InlineKeyboardMarkup()
+    for b in bots:
+        kb.add(InlineKeyboardButton(b["name"], callback_data=f"del_bot:{b['_id']}"))
+    kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="bot_back"))
+    
+    bot.edit_message_text(
+        "🗑 O'chirish uchun botni tanlang:",
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=kb
+    )
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("del_bot:"))
+def delete_bot_confirm(call):
+    bot_id = call.data.split(":")[1]
+    bot_info = required_bots_collection.find_one({"_id": ObjectId(bot_id)})
+    
+    kb = InlineKeyboardMarkup()
+    kb.add(
+        InlineKeyboardButton("✅ Ha", callback_data=f"del_bot_yes:{bot_id}"),
+        InlineKeyboardButton("❌ Yo'q", callback_data="bot_delete")
+    )
+    
+    bot.edit_message_text(
+        f"⚠️ <b>{bot_info['name']}</b> botini o'chirmoqchimisiz?",
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=kb
+    )
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("del_bot_yes:"))
+def delete_bot_yes(call):
+    bot_id = call.data.split(":")[1]
+    required_bots_collection.delete_one({"_id": ObjectId(bot_id)})
+    
+    bot.edit_message_text(
+        "✅ Bot o'chirildi!",
+        call.message.chat.id,
+        call.message.message_id
+    )
+
+@bot.callback_query_handler(func=lambda c: c.data == "bot_back")
+def bot_back(call):
+    bot.edit_message_text(
+        "📌 Majburiy obuna bo'limi:",
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=required_menu()
+    )
+
+# ==========================
+#   TAHRIRLASH (KANAL UCHUN)
 # ==========================
 @bot.callback_query_handler(func=lambda c: c.data == "req_edit")
 def start_required_edit(call):
@@ -838,7 +1080,7 @@ def edit_count_save(message):
     admin_data[uid] = {}
 
 # ==========================
-#   O'CHIRISH
+#   O'CHIRISH (KANAL UCHUN)
 # ==========================
 @bot.callback_query_handler(func=lambda c: c.data == "req_delete")
 def start_required_delete(call):
@@ -976,7 +1218,7 @@ def back_to_required_menu(call):
     )
 
 # ==========================
-#   MAJBURIY OBUNA TEKSHIRISH
+#   MAJBURIY OBUNA TEKSHIRISH (KANAL VA BOT)
 # ==========================
 def check_required_subs(user_id):
     required = list(required_channels_collection.find({}))
@@ -984,6 +1226,18 @@ def check_required_subs(user_id):
         try:
             member = bot.get_chat_member(ch["channel_id"], user_id)
             if member.status not in ["member", "administrator", "creator", "restricted"]:
+                return False
+        except:
+            return False
+    return True
+
+def check_required_bots(user_id):
+    required = list(required_bots_collection.find({}))
+    for bot_info in required:
+        bot_username = bot_info["bot_username"]
+        try:
+            member = bot.get_chat_member(f"@{bot_username}", user_id)
+            if member.status != "member":
                 return False
         except:
             return False
@@ -1021,6 +1275,35 @@ def get_required_keyboard(user_id, code):
     )
     return kb
 
+def get_required_bots_keyboard(user_id, code):
+    required = list(required_bots_collection.find({}))
+    buttons = []
+    
+    for bot_info in required:
+        try:
+            member = bot.get_chat_member(f"@{bot_info['bot_username']}", user_id)
+            if member.status == "member":
+                continue
+        except:
+            pass
+        
+        buttons.append(InlineKeyboardButton(
+            bot_info["name"], 
+            url=f"https://t.me/{bot_info['bot_username']}?start=from_{BOT_USERNAME}"
+        ))
+    
+    random.shuffle(buttons)
+    
+    kb = InlineKeyboardMarkup(row_width=1)
+    for btn in buttons:
+        kb.add(btn)
+    
+    kb.add(InlineKeyboardButton(
+        "✔️ Tekshirish",
+        url=f"https://t.me/{BOT_USERNAME}?start={code}"
+    ))
+    return kb
+
 def schedule_delete(chat_id, message_id, delay):
     def _delete():
         try:
@@ -1043,13 +1326,13 @@ def send_content(chat_id, items, is_batch=False):
                 msg = bot.send_document(chat_id, item["file_id"], caption=item.get("caption"))
             
             if msg:
-                schedule_delete(chat_id, msg.message_id, 300)
+                schedule_delete(chat_id, msg.message_id, 1200)
         
         warn = bot.send_message(
             chat_id,
-            "<b>⚠️ ESLATMA ⚠️\n\n❗ Ushbu habarlar 5 daqiqadan so'ng o'chiriladi. Tezda saqlash joyingizga saqlab oling!</b>"
+            "<b>⚠️ ESLATMA ⚠️\n\n❗ Ushbu habarlar 20 daqiqadan so'ng o'chiriladi. Tezda saqlash joyingizga saqlab oling!</b>"
         )
-        schedule_delete(chat_id, warn.message_id, 300)
+        schedule_delete(chat_id, warn.message_id, 1200)
     
     else:
         for item in items:
@@ -1064,19 +1347,18 @@ def send_content(chat_id, items, is_batch=False):
                 msg = bot.send_document(chat_id, item["file_id"], caption=item.get("caption"))
             
             if msg:
-                schedule_delete(chat_id, msg.message_id, 300)
+                schedule_delete(chat_id, msg.message_id, 1200)
                 warn = bot.send_message(
                     chat_id,
-                    "<b>⚠️ ESLATMA ⚠️\n\n❗ Ushbu habar 5 daqiqadan so'ng o'chiriladi. Tezda saqlash joyingizga saqlab oling!</b>"
+                    "<b>⚠️ ESLATMA ⚠️\n\n❗ Ushbu habar 20 daqiqadan so'ng o'chiriladi. Tezda saqlash joyingizga saqlab oling!</b>"
                 )
-                schedule_delete(chat_id, warn.message_id, 300)
+                schedule_delete(chat_id, warn.message_id, 1200)
 
 # ==========================
 #   /start
 # ==========================
 @bot.message_handler(commands=['start'])
 def start(message):
-    # Agar /start dan keyin hech narsa bo'lmasa
     if len(message.text.split()) == 1:
         users_collection.update_one(
             {"user_id": message.from_user.id},
@@ -1097,7 +1379,6 @@ def start(message):
             reply_markup=markup
         )
     else:
-        # /start code bilan kelgan
         code = message.text.split()[1]
         
         if code.startswith("ref_"):
@@ -1111,7 +1392,6 @@ def start(message):
                         {"$set": {"referral_name": ref_name}},
                         upsert=True
                     )
-            # Referal uchun oddiy start javobi
             users_collection.update_one(
                 {"user_id": message.from_user.id},
                 {"$set": {"user_id": message.from_user.id}},
@@ -1152,6 +1432,23 @@ def start(message):
                 )
             return
 
+        if not check_required_bots(message.from_user.id):
+            settings = bot_settings_collection.find_one({"setting": "main_image"})
+            if settings and settings.get("image_id"):
+                bot.send_photo(
+                    message.chat.id,
+                    settings["image_id"],
+                    caption="📢 <b>Kontentni ko'rish uchun quyidagi botlarga start bosing:</b>",
+                    reply_markup=get_required_bots_keyboard(message.from_user.id, code)
+                )
+            else:
+                bot.send_message(
+                    message.chat.id,
+                    "📢 <b>Kontentni ko'rish uchun quyidagi botlarga start bosing:</b>",
+                    reply_markup=get_required_bots_keyboard(message.from_user.id, code)
+                )
+            return
+
         is_batch = contents.count_documents({"code": code}) > 1
         send_content(message.chat.id, items, is_batch)
 
@@ -1184,8 +1481,9 @@ def callback(call):
                 "Botni ishlatishni bilmaganlar uchun!\n\n"
                 "❏ Botni ishlatish qo'llanmasi:\n"
                 "1. Kanallarga obuna bo'ling!\n"
-                "2. Tekshirish tugmasini bosing ✅\n"
-                "3. Kanaldagi anime post past qismidagi yuklab olish tugmasini bosing\n\n"
+                "2. Botlarga start bosing!\n"
+                "3. Tekshirish tugmasini bosing ✅\n"
+                "4. Kanaldagi anime post past qismidagi yuklab olish tugmasini bosing\n\n"
                 "📢 Kanal: <i>@AniGonUz</i>"
                 "</b>"
             ),
@@ -1212,6 +1510,49 @@ def callback(call):
             ),
             reply_markup=markup
         )
+
+    # Video Edit callback'larini functions.py ga yuborish
+    if data.startswith("video_edit_"):
+        functions.video_edit_callback(bot, call)
+
+# ==========================
+#   VIDEO EDIT MESSAGE HANDLERS
+# ==========================
+@bot.message_handler(content_types=['photo'])
+def handle_photo(message):
+    if message.from_user.id == ADMIN_ID:
+        # Rasm sozlash uchun
+        if admin_state.get(message.from_user.id) == "set_main_image":
+            save_main_image(message)
+            return
+        # Video edit uchun
+        functions.handle_image_upload(bot, message)
+
+@bot.message_handler(content_types=['video'])
+def handle_video(message):
+    if message.from_user.id == ADMIN_ID:
+        functions.handle_video_upload(bot, message, BOT_USERNAME)
+
+# ==========================
+#   TEXT COPY MESSAGE HANDLERS
+# ==========================
+@bot.message_handler(func=lambda m: text_copy_state.get(m.from_user.id, {}).get("step") == "waiting_text")
+def handle_text_copy_text(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    functions.handle_text_copy_message(bot, message)
+
+@bot.message_handler(func=lambda m: text_copy_state.get(m.from_user.id, {}).get("step") == "waiting_count")
+def handle_text_copy_count(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    functions.handle_text_copy_count(bot, message)
+
+@bot.message_handler(func=lambda m: text_copy_state.get(m.from_user.id, {}).get("step") == "waiting_channel")
+def handle_text_copy_channel(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    functions.handle_text_copy_channel(bot, message)
 
 # ==========================
 #   RUN SERVER
