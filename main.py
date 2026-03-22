@@ -162,10 +162,11 @@ def admin_buttons(message):
         admin_state[uid] = "set_main_image"
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("🗑 Rasmni o'chirish", callback_data="delete_main_image"))
-        bot.reply_to(message, "🖼 Majburiy obuna xabari uchun rasm yuboring yoki /delete_pic orqali rasmni o'chirishingiz mumkin.", reply_markup=kb)
+        bot.reply_to(message, "🖼 Majburiy obuna xabari uchun rasm yuboring:", reply_markup=kb)
 
     elif text == "🔙 Chiqish":
         admin_state[uid] = None
+        admin_data[uid] = {}
         bot.send_message(uid, "<b>Admin paneldan chiqdingiz.</b>", reply_markup=telebot.types.ReplyKeyboardRemove())
 
 # ==========================
@@ -308,7 +309,7 @@ def referral_back(call):
     )
 
 # ==========================
-#   BROADCAST (HAMMA NARSA UCHUN)
+#   BROADCAST
 # ==========================
 @bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) == "send_broadcast")
 def send_broadcast_handler(message):
@@ -345,7 +346,6 @@ def broadcast_confirm(call):
     
     for u in users:
         try:
-            # Forward qilingan xabarni yuborish
             if message.forward_from or message.forward_from_chat:
                 bot.copy_message(u["user_id"], message.chat.id, message.message_id)
             elif message.content_type == "text":
@@ -403,7 +403,7 @@ def multi_mode_select(call):
     if call.data == "multi_mode_single":
         admin_state[uid] = "multi_add_single"
         bot.edit_message_text(
-            "📥 Hamma videolarni tashlang.\n\nHar bir kontent uchun alohida havola beriladi.\n"
+            "📥 Kontentlarni tashlang.\n\nHar bir kontent uchun alohida havola beriladi.\n"
             "Tugagach /stop deb yozing.",
             call.message.chat.id,
             call.message.message_id
@@ -412,7 +412,7 @@ def multi_mode_select(call):
         admin_state[uid] = "multi_add_batch"
         admin_data[uid] = {"batch": []}
         bot.edit_message_text(
-            "📥 Barcha habarni yuboring va oxirida /stop bosing.\n\n"
+            "📥 Barcha kontentlarni yuboring va oxirida /stop bosing.\n\n"
             "Barchasi uchun bitta havola beriladi.",
             call.message.chat.id,
             call.message.message_id
@@ -421,15 +421,10 @@ def multi_mode_select(call):
 # ==========================
 #   MULTI-UPLOAD CONTENT SAVING
 # ==========================
-@bot.message_handler(content_types=['text', 'photo', 'video', 'document'])
+@bot.message_handler(content_types=['text', 'photo', 'video', 'document'], func=lambda m: admin_state.get(m.from_user.id) in ["multi_add_single", "multi_add_batch"])
 def save_multi(message):
     uid = message.from_user.id
     state = admin_state.get(uid)
-
-    if state not in ["multi_add_single", "multi_add_batch"]:
-        return
-
-    time.sleep(0.7)
 
     if state == "multi_add_single":
         code = generate_code()
@@ -546,6 +541,7 @@ def stop(message):
     if state == "multi_add_single":
         admin_state[uid] = None
         bot.reply_to(message, "<b>✅ Barcha kontentlar qabul qilindi.</b>", reply_markup=admin_panel())
+        return
 
 # ==========================
 #   MAJBURIY KANAL QO'SHISH
@@ -1047,13 +1043,13 @@ def send_content(chat_id, items, is_batch=False):
                 msg = bot.send_document(chat_id, item["file_id"], caption=item.get("caption"))
             
             if msg:
-                schedule_delete(chat_id, msg.message_id, 300)
+                schedule_delete(chat_id, msg.message_id, 1200)
         
         warn = bot.send_message(
             chat_id,
-            "<b>⚠️ ESLATMA ⚠️\n\n❗ Ushbu habarlar 5 daqiqadan so'ng o'chiriladi. Tezda saqlash joyingizga saqlab oling!</b>"
+            "<b>⚠️ ESLATMA ⚠️\n\n❗ Ushbu habarlar 20 daqiqadan so'ng o'chiriladi. Tezda saqlash joyingizga saqlab oling!</b>"
         )
-        schedule_delete(chat_id, warn.message_id, 300)
+        schedule_delete(chat_id, warn.message_id, 1200)
     
     else:
         for item in items:
@@ -1068,82 +1064,96 @@ def send_content(chat_id, items, is_batch=False):
                 msg = bot.send_document(chat_id, item["file_id"], caption=item.get("caption"))
             
             if msg:
-                schedule_delete(chat_id, msg.message_id, 300)
+                schedule_delete(chat_id, msg.message_id, 1200)
                 warn = bot.send_message(
                     chat_id,
-                    "<b>⚠️ ESLATMA ⚠️\n\n❗ Ushbu habar 5 daqiqadan so'ng o'chiriladi. Tezda saqlash joyingizga saqlab oling!</b>"
+                    "<b>⚠️ ESLATMA ⚠️\n\n❗ Ushbu habar 20 daqiqadan so'ng o'chiriladi. Tezda saqlash joyingizga saqlab oling!</b>"
                 )
-                schedule_delete(chat_id, warn.message_id, 300)
+                schedule_delete(chat_id, warn.message_id, 1200)
 
 # ==========================
 #   /start
 # ==========================
-@bot.message_handler(func=lambda m: m.text == "/start")
+@bot.message_handler(commands=['start'])
 def start(message):
-    users_collection.update_one(
-        {"user_id": message.from_user.id},
-        {"$set": {"user_id": message.from_user.id}},
-        upsert=True
-    )
+    # Agar /start dan keyin hech narsa bo'lmasa
+    if len(message.text.split()) == 1:
+        users_collection.update_one(
+            {"user_id": message.from_user.id},
+            {"$set": {"user_id": message.from_user.id}},
+            upsert=True
+        )
 
-    markup = InlineKeyboardMarkup()
-    markup.add(
-        InlineKeyboardButton("📝 Bot Haqida", callback_data="about"),
-        InlineKeyboardButton("🔒 Yopish", callback_data=f"close:{message.message_id}")
-    )
+        markup = InlineKeyboardMarkup()
+        markup.add(
+            InlineKeyboardButton("📝 Bot Haqida", callback_data="about"),
+            InlineKeyboardButton("🔒 Yopish", callback_data=f"close:{message.message_id}")
+        )
 
-    bot.reply_to(
-        message,
-        "<b>Bu bot orqali kanaldagi animelarni yuklab olishingiz mumkin.\n\n"
-        "❗️Botga habar yozmang❗️</b>",
-        reply_markup=markup
-    )
+        bot.reply_to(
+            message,
+            "<b>Bu bot orqali kanaldagi animelarni yuklab olishingiz mumkin.\n\n"
+            "❗️Botga habar yozmang❗️</b>",
+            reply_markup=markup
+        )
+    else:
+        # /start code bilan kelgan
+        code = message.text.split()[1]
+        
+        if code.startswith("ref_"):
+            ref_name = code.replace("ref_", "")
+            referral = referrals_collection.find_one({"name": ref_name})
+            if referral:
+                user = users_collection.find_one({"user_id": message.from_user.id})
+                if not user:
+                    user_referrals_collection.update_one(
+                        {"user_id": message.from_user.id},
+                        {"$set": {"referral_name": ref_name}},
+                        upsert=True
+                    )
+            # Referal uchun oddiy start javobi
+            users_collection.update_one(
+                {"user_id": message.from_user.id},
+                {"$set": {"user_id": message.from_user.id}},
+                upsert=True
+            )
+            markup = InlineKeyboardMarkup()
+            markup.add(
+                InlineKeyboardButton("📝 Bot Haqida", callback_data="about"),
+                InlineKeyboardButton("🔒 Yopish", callback_data=f"close:{message.message_id}")
+            )
+            bot.reply_to(
+                message,
+                "<b>Bu bot orqali kanaldagi animelarni yuklab olishingiz mumkin.\n\n"
+                "❗️Botga habar yozmang❗️</b>",
+                reply_markup=markup
+            )
+            return
 
-# ==========================
-#   START-LINK CONTENT VIEW
-# ==========================
-@bot.message_handler(func=lambda m: m.text.startswith("/start ") and len(m.text.split()) == 2)
-def start_with_code(message):
-    code = message.text.split()[1]
-    
-    if code.startswith("ref_"):
-        ref_name = code.replace("ref_", "")
-        referral = referrals_collection.find_one({"name": ref_name})
-        if referral:
-            user = users_collection.find_one({"user_id": message.from_user.id})
-            if not user:
-                user_referrals_collection.update_one(
-                    {"user_id": message.from_user.id},
-                    {"$set": {"referral_name": ref_name}},
-                    upsert=True
+        items = list(contents.find({"code": code}).sort("order", 1))
+        if not items:
+            bot.send_message(message.chat.id, "❌ Kontent topilmadi.")
+            return
+
+        if not check_required_subs(message.from_user.id):
+            settings = bot_settings_collection.find_one({"setting": "main_image"})
+            if settings and settings.get("image_id"):
+                bot.send_photo(
+                    message.chat.id,
+                    settings["image_id"],
+                    caption="📢 <b>Animeni yuklab olish uchun quyidagi kanallarga obuna bo'ling:</b>",
+                    reply_markup=get_required_keyboard(message.from_user.id, code)
                 )
-        start(message)
-        return
+            else:
+                bot.send_message(
+                    message.chat.id,
+                    "📢 <b>Animeni yuklab olish uchun quyidagi kanallarga obuna bo'ling:</b>",
+                    reply_markup=get_required_keyboard(message.from_user.id, code)
+                )
+            return
 
-    items = list(contents.find({"code": code}).sort("order", 1))
-    if not items:
-        bot.send_message(message.chat.id, "")
-        return
-
-    if not check_required_subs(message.from_user.id):
-        settings = bot_settings_collection.find_one({"setting": "main_image"})
-        if settings and settings.get("image_id"):
-            bot.send_photo(
-                message.chat.id,
-                settings["image_id"],
-                caption="📢 <b>Animeni yuklab olish uchun quyidagi kanallarga obuna bo'ling:</b>",
-                reply_markup=get_required_keyboard(message.from_user.id, code)
-            )
-        else:
-            bot.send_message(
-                message.chat.id,
-                "📢 <b>Animeni yuklab olish uchun quyidagi kanallarga obuna bo'ling:</b>",
-                reply_markup=get_required_keyboard(message.from_user.id, code)
-            )
-        return
-
-    is_batch = contents.count_documents({"code": code}) > 1
-    send_content(message.chat.id, items, is_batch)
+        is_batch = contents.count_documents({"code": code}) > 1
+        send_content(message.chat.id, items, is_batch)
 
 # ==========================
 #   CALLBACK HANDLER
