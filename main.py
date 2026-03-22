@@ -33,7 +33,9 @@ contents = db["contents"]
 required_channels_collection = db["required_channels"]
 optional_channels_collection = db["optional_channels"]
 required_stats_collection = db["required_stats"]
-users_collection = db["users"]  # forward uchun
+users_collection = db["users"]
+referrals_collection = db["referrals"]
+user_referrals_collection = db["user_referrals"]
 
 # ==========================
 #   FLASK SERVER
@@ -60,7 +62,7 @@ def keep_alive():
             requests.get("https://yuklovchi-bot-80ui.onrender.com")
         except:
             pass
-        time.sleep(600)
+        time.sleep(60)  # Har 60 sekundda ping
 
 threading.Thread(target=keep_alive).start()
 
@@ -84,6 +86,9 @@ def admin_panel():
     )
     markup.row(
         KeyboardButton("Habar Yuborish"),
+        KeyboardButton("Referal")
+    )
+    markup.row(
         KeyboardButton("🔙 Chiqish")
     )
     return markup
@@ -98,6 +103,9 @@ def required_menu():
         InlineKeyboardButton("✏️ Tahrirlash", callback_data="req_edit"),
         InlineKeyboardButton("🗑 O‘chirish", callback_data="req_delete")
     )
+    kb.add(
+        InlineKeyboardButton("🖼 Rasm sozlash", callback_data="req_image")
+    )
     kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="req_back"))
     return kb
 
@@ -110,7 +118,6 @@ def admin_start(message):
         bot.reply_to(message, "❌ Siz admin emassiz!")
         return
 
-    # userni bazaga qo‘shib qo‘yamiz
     users_collection.update_one(
         {"user_id": message.from_user.id},
         {"$set": {"user_id": message.from_user.id}},
@@ -123,7 +130,7 @@ def admin_start(message):
 #   ADMIN BUTTONS
 # ==========================
 @bot.message_handler(func=lambda m: m.from_user.id == ADMIN_ID and m.text in [
-    "Cantent Qo'shish", "Majburi Obuna", "Habar Yuborish", "🔙 Chiqish"
+    "Cantent Qo'shish", "Majburi Obuna", "Habar Yuborish", "Referal", "🔙 Chiqish"
 ])
 def admin_buttons(message):
     uid = message.from_user.id
@@ -140,148 +147,266 @@ def admin_buttons(message):
 
     elif text == "Habar Yuborish":
         admin_state[uid] = "send_forward"
-        bot.reply_to(message, "📨 Forward xabar yuboring:")
+        bot.reply_to(message, "📨 Xabar yuboring:")
 
     elif text == "Majburi Obuna":
         bot.send_message(message.chat.id, "📌 Majburiy obuna bo‘limi:", reply_markup=required_menu())
+
+    elif text == "Referal":
+        kb = InlineKeyboardMarkup()
+        kb.add(
+            InlineKeyboardButton("➕ Yangi qo'shish", callback_data="referral_add"),
+            InlineKeyboardButton("📊 Statistika", callback_data="referral_stats")
+        )
+        bot.send_message(uid, "Salom Admin bugun nima qilamiz?", reply_markup=kb)
 
     elif text == "🔙 Chiqish":
         admin_state[uid] = None
         bot.send_message(uid, "<b>Admin paneldan chiqdingiz.</b>", reply_markup=telebot.types.ReplyKeyboardRemove())
 
 # ==========================
-#   FORWARD-ONLY BROADCAST
+#   REFERRAL SYSTEM
+# ==========================
+@bot.callback_query_handler(func=lambda c: c.data == "referral_add")
+def referral_add(call):
+    uid = call.from_user.id
+    admin_state[uid] = "referral_add_name"
+    bot.edit_message_text(
+        "📛 Yangi referal uchun nom kiriting:\n\n<i>Faqat lotin harflari, raqamlar va pastki chiziq (_) ishlatilishi mumkin.</i>",
+        call.message.chat.id,
+        call.message.message_id
+    )
+
+@bot.callback_query_handler(func=lambda c: c.data == "referral_stats")
+def referral_stats(call):
+    referrals = list(referrals_collection.find({}))
+    if not referrals:
+        bot.edit_message_text(
+            "📊 Referallar mavjud emas.",
+            call.message.chat.id,
+            call.message.message_id
+        )
+        return
+
+    text = "📊 <b>Referallar statistikasi</b>\n\n"
+    kb = InlineKeyboardMarkup()
+    
+    for ref in referrals:
+        count = user_referrals_collection.count_documents({"referral_name": ref["name"]})
+        text += f"• <b>{ref['name']}</b>: {count} ta foydalanuvchi\n"
+        kb.add(InlineKeyboardButton(f"🗑 {ref['name']}", callback_data=f"del_ref:{ref['name']}"))
+    
+    kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="referral_back"))
+    
+    bot.edit_message_text(
+        text,
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=kb
+    )
+
+@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) == "referral_add_name")
+def referral_save_name(message):
+    uid = message.from_user.id
+    name = message.text.strip()
+    
+    # Nomni tekshirish
+    if not all(c.isalnum() or c == '_' for c in name):
+        bot.reply_to(message, "❌ Nom faqat lotin harflari, raqamlar va pastki chiziq (_) dan iborat bo'lishi kerak!")
+        return
+    
+    if len(name) < 3 or len(name) > 20:
+        bot.reply_to(message, "❌ Nom 3-20 belgi orasida bo'lishi kerak!")
+        return
+    
+    if referrals_collection.find_one({"name": name}):
+        bot.reply_to(message, "❌ Bunday nomli referal allaqachon mavjud!")
+        return
+    
+    referrals_collection.insert_one({
+        "name": name,
+        "created_at": time.time()
+    })
+    
+    bot.reply_to(message, f"✅ <b>{name}</b> referali yaratildi!\n\nHavola: <code>https://t.me/{BOT_USERNAME}?start=ref_{name}</code>")
+    admin_state[uid] = None
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("del_ref:"))
+def delete_referral_confirm(call):
+    ref_name = call.data.split(":")[1]
+    
+    kb = InlineKeyboardMarkup()
+    kb.add(
+        InlineKeyboardButton("✅ Ha", callback_data=f"del_ref_yes:{ref_name}"),
+        InlineKeyboardButton("❌ Yo'q", callback_data="referral_stats")
+    )
+    
+    bot.edit_message_text(
+        f"⚠️ Haqiqatdan ham <b>{ref_name}</b> havolasini o'chirmoqchimisiz?",
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=kb
+    )
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("del_ref_yes:"))
+def delete_referral_yes(call):
+    ref_name = call.data.split(":")[1]
+    referrals_collection.delete_one({"name": ref_name})
+    user_referrals_collection.delete_many({"referral_name": ref_name})
+    
+    bot.edit_message_text(
+        f"✅ <b>{ref_name}</b> referali o'chirildi!",
+        call.message.chat.id,
+        call.message.message_id
+    )
+    
+    referral_stats(call)
+
+@bot.callback_query_handler(func=lambda c: c.data == "referral_back")
+def referral_back(call):
+    kb = InlineKeyboardMarkup()
+    kb.add(
+        InlineKeyboardButton("➕ Yangi qo'shish", callback_data="referral_add"),
+        InlineKeyboardButton("📊 Statistika", callback_data="referral_stats")
+    )
+    bot.edit_message_text(
+        "Salom Admin bugun nima qilamiz?",
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=kb
+    )
+
+# ==========================
+#   FORWARD-ONLY BROADCAST WITH CONFIRMATION
 # ==========================
 @bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) == "send_forward")
 def send_forward_handler(message):
     uid = message.from_user.id
+    
+    admin_data[uid] = {"forward_message": message}
+    
+    kb = InlineKeyboardMarkup()
+    kb.add(
+        InlineKeyboardButton("✅ Tasdiqlash", callback_data="broadcast_confirm"),
+        InlineKeyboardButton("❌ Bekor qilish", callback_data="broadcast_cancel")
+    )
+    
+    bot.reply_to(message, "⚠️ Haqiqatdan ham shu xabarni barchaga yubormaymi?", reply_markup=kb)
 
-    if not message.forward_from and not message.forward_from_chat:
-        bot.reply_to(message, "❌ Faqat forward qilingan xabar yuboring.")
+@bot.callback_query_handler(func=lambda c: c.data == "broadcast_confirm")
+def broadcast_confirm(call):
+    uid = call.from_user.id
+    message = admin_data.get(uid, {}).get("forward_message")
+    
+    if not message:
+        bot.answer_callback_query(call.id, "❌ Xato yuz berdi!")
         return
-
+    
     users = users_collection.find({})
+    success = 0
+    fail = 0
+    
+    bot.edit_message_text(
+        "⏳ Xabar yuborilmoqda...",
+        call.message.chat.id,
+        call.message.message_id
+    )
+    
     for u in users:
         try:
-            bot.copy_message(u["user_id"], message.chat.id, message.message_id)
+            if message.content_type == "text":
+                bot.send_message(u["user_id"], message.text)
+            elif message.content_type == "photo":
+                bot.send_photo(u["user_id"], message.photo[-1].file_id, caption=message.caption)
+            elif message.content_type == "video":
+                bot.send_video(u["user_id"], message.video.file_id, caption=message.caption)
+            elif message.content_type == "document":
+                bot.send_document(u["user_id"], message.document.file_id, caption=message.caption)
+            else:
+                bot.copy_message(u["user_id"], message.chat.id, message.message_id)
+            success += 1
         except:
-            pass
-
-    bot.reply_to(message, "✅ Xabar barcha foydalanuvchilarga yuborildi.")
+            fail += 1
+    
+    bot.edit_message_text(
+        f"✅ Xabar yuborildi!\n\n✅ Muvaffaqiyatli: {success}\n❌ Xatolik: {fail}",
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=admin_panel()
+    )
+    
     admin_state[uid] = None
+    admin_data[uid] = {}
 
-# ==========================
-#   MULTI MODE TANLASH
-# ==========================
-@bot.callback_query_handler(func=lambda c: c.data in ["multi_mode_single", "multi_mode_batch"])
-def multi_mode_select(call):
+@bot.callback_query_handler(func=lambda c: c.data == "broadcast_cancel")
+def broadcast_cancel(call):
     uid = call.from_user.id
-    if uid != ADMIN_ID:
+    bot.edit_message_text(
+        "❌ Xabar yuborish bekor qilindi.",
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=admin_panel()
+    )
+    admin_state[uid] = None
+    admin_data[uid] = {}
+
+# ==========================
+#   REQUIRED CHANNEL IMAGE SETUP
+# ==========================
+@bot.callback_query_handler(func=lambda c: c.data == "req_image")
+def req_image_setup(call):
+    channels = list(required_channels_collection.find({}))
+    if not channels:
+        bot.edit_message_text(
+            "❌ Majburiy kanallar yo'q. Avval kanal qo'shing.",
+            call.message.chat.id,
+            call.message.message_id
+        )
         return
+    
+    kb = InlineKeyboardMarkup()
+    for ch in channels:
+        status = "✅" if ch.get("has_image") else "❌"
+        kb.add(InlineKeyboardButton(
+            f"{status} {ch['name']}",
+            callback_data=f"set_image:{ch['_id']}"
+        ))
+    kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="req_back"))
+    
+    bot.edit_message_text(
+        "🖼 Rasm sozlash:\nRasm o'rnatilgan kanallar ✅ belgisi bilan ko'rsatilgan.",
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=kb
+    )
 
-    if call.data == "multi_mode_single":
-        admin_state[uid] = "multi_add_single"
-        bot.edit_message_text(
-            "📥 Hamma videolarni tashlang.\n\nHar bir kontent uchun alohida havola beriladi.\n"
-            "Tugagach /stop deb yozing.",
-            call.message.chat.id,
-            call.message.message_id
-        )
-    else:
-        admin_state[uid] = "multi_add_batch"
-        admin_data[uid] = {"batch": []}
-        bot.edit_message_text(
-            "📥 Barcha habarni yuboring va oxirida /stop bosing.\n\n"
-            "Barchasi uchun bitta havola beriladi.",
-            call.message.chat.id,
-            call.message.message_id
-        )
+@bot.callback_query_handler(func=lambda c: c.data.startswith("set_image:"))
+def set_image_start(call):
+    ch_id = call.data.split(":")[1]
+    admin_state[call.from_user.id] = f"set_image_{ch_id}"
+    
+    bot.edit_message_text(
+        "📸 Iltimos, rasm yuboring:",
+        call.message.chat.id,
+        call.message.message_id
+    )
 
-# ==========================
-#   /stop — multi upload tugatish
-# ==========================
-@bot.message_handler(commands=['stop'])
-def stop(message):
+@bot.message_handler(content_types=['photo'])
+def save_channel_image(message):
     uid = message.from_user.id
     state = admin_state.get(uid)
-
-    # ♾️ - 1 rejimi
-    if state == "multi_add_batch":
-        batch = admin_data.get(uid, {}).get("batch", [])
-        if not batch:
-            bot.reply_to(message, "❌ Hech qanday kontent yuborilmadi.")
-            admin_state[uid] = None
-            admin_data[uid] = {}
-            return
-
-        code = generate_code()
-        docs = []
-        for item in batch:
-            docs.append({
-                "type": item["type"],
-                "file_id": item["file_id"],
-                "caption": item.get("caption"),
-                "text": item.get("text"),
-                "code": code,
-                "order": item["order"]
-            })
-
-        contents.insert_many(docs)
-
-        link = f"https://t.me/{BOT_USERNAME}?start={code}"
-        bot.reply_to(message, link)
-
-        admin_state[uid] = None
-        admin_data[uid] = {}
-        return
-
-    # 1 - 1 rejimi
-    if state == "multi_add_single":
-        admin_state[uid] = None
-        bot.reply_to(message, "<b>✅ Barcha kontentlar qabul qilindi.</b>", reply_markup=admin_panel())
-
-# ==========================
-#   MAJBURIY / IXT.IYORIY OBUNA ADMIN CALLBACK
-# ==========================
-@bot.callback_query_handler(func=lambda c: c.data in [
-    "req_add", "opt_add", "req_edit", "req_delete", "req_back",
-    "del_req_list", "del_opt_list"
-])
-def req_menu_handler(call):
-    data = call.data
-
-    if data == "req_back":
-        bot.edit_message_text(
-            "⚙️ Admin panelga qaytdingiz.",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=required_menu()
+    
+    if state and state.startswith("set_image_"):
+        ch_id = state.replace("set_image_", "")
+        file_id = message.photo[-1].file_id
+        
+        required_channels_collection.update_one(
+            {"_id": ObjectId(ch_id)},
+            {"$set": {"image_id": file_id, "has_image": True}}
         )
-        return
-
-    if data == "req_add":
-        start_required_add(call)
-        return
-
-    if data == "opt_add":
-        start_optional_add(call)
-        return
-
-    if data == "req_edit":
-        start_required_edit(call)
-        return
-
-    if data == "req_delete":
-        start_required_delete(call)
-        return
-
-    if data == "del_req_list":
-        delete_required_list(call)
-        return
-
-    if data == "del_opt_list":
-        delete_optional_list(call)
-        return
+        
+        bot.reply_to(message, "✅ Rasm saqlandi!")
+        admin_state[uid] = None
 
 # ==========================
 #   MAJBURIY KANAL QO‘SHISH
@@ -362,7 +487,8 @@ def req_auto_name(call):
         "channel_id": data["channel_id"],
         "url": data["url"],
         "count": data["count"],
-        "auto": True
+        "auto": True,
+        "has_image": False
     }
 
     required_channels_collection.insert_one(new_channel)
@@ -388,7 +514,8 @@ def req_custom_name(message):
         "channel_id": data["channel_id"],
         "url": data["url"],
         "count": data["count"],
-        "auto": False
+        "auto": False,
+        "has_image": False
     }
 
     required_channels_collection.insert_one(new_channel)
@@ -398,7 +525,7 @@ def req_custom_name(message):
     admin_data[uid] = {}
 
 # ==========================
-#   IXT.IYORIY KANAL QO‘SHISH (ID kerak emas)
+#   IXT.IYORIY KANAL QO‘SHISH
 # ==========================
 def start_optional_add(call):
     uid = call.from_user.id
@@ -719,13 +846,14 @@ def delete_optional_yes(call):
     )
 
 # ==========================
-#   MAJBURIY OBUNA TEKSHIRISH
+#   MAJBURIY OBUNA TEKSHIRISH (with request/join support)
 # ==========================
 def check_required_subs(user_id):
     required = list(required_channels_collection.find({}))
     for ch in required:
         try:
             member = bot.get_chat_member(ch["channel_id"], user_id)
+            # restricted ham obunachi hisoblanadi (so'rov yuborganlar)
             if member.status not in ["member", "administrator", "creator", "restricted"]:
                 return False
         except:
@@ -772,255 +900,26 @@ def schedule_delete(chat_id, message_id, delay):
             pass
     threading.Timer(delay, _delete).start()
 
-def send_content(chat_id, item):
-    msg = None
-    if item["type"] == "text":
-        msg = bot.send_message(chat_id, item["text"])
-    elif item["type"] == "photo":
-        msg = bot.send_photo(chat_id, item["file_id"], caption=item.get("caption"))
-    elif item["type"] == "video":
-        msg = bot.send_video(chat_id, item["file_id"], caption=item.get("caption"))
-    elif item["type"] == "document":
-        msg = bot.send_document(chat_id, item["file_id"], caption=item.get("caption"))
-
-    if msg:
+def send_content(chat_id, items, is_batch=False):
+    if is_batch:
+        # Batch rejimi: barcha kontentlarni yubor, keyin bitta ogohlantirish
+        for item in items:
+            msg = None
+            if item["type"] == "text":
+                msg = bot.send_message(chat_id, item["text"])
+            elif item["type"] == "photo":
+                msg = bot.send_photo(chat_id, item["file_id"], caption=item.get("caption"))
+            elif item["type"] == "video":
+                msg = bot.send_video(chat_id, item["file_id"], caption=item.get("caption"))
+            elif item["type"] == "document":
+                msg = bot.send_document(chat_id, item["file_id"], caption=item.get("caption"))
+            
+            if msg:
+                schedule_delete(chat_id, msg.message_id, 300)
+        
+        # Bitta ogohlantirish
         warn = bot.send_message(
             chat_id,
-            "<b>⚠️ESLATMA⚠️\n❗Ushbu habar 5 daqiqadan so'ng ochiriladi tezda saqlash joyingizga saqlab oling</b>"
+            "<b>⚠️ESLATMA⚠️\n❗Ushbu habarlar 5 daqiqadan so'ng ochiriladi tezda saqlash joyingizga saqlab oling</b>"
         )
-        schedule_delete(chat_id, msg.message_id, 300)
-        schedule_delete(chat_id, warn.message_id, 300)
-
-# ==========================
-#   /start (ODDIY)
-# ==========================
-@bot.message_handler(func=lambda m: m.text == "/start")
-def start(message):
-    users_collection.update_one(
-        {"user_id": message.from_user.id},
-        {"$set": {"user_id": message.from_user.id}},
-        upsert=True
-    )
-
-    markup = InlineKeyboardMarkup()
-    markup.add(
-        InlineKeyboardButton("📝 Bot Haqida", callback_data="about"),
-        InlineKeyboardButton("🔒 Yopish", callback_data=f"close:{message.message_id}")
-    )
-
-    bot.reply_to(
-        message,
-        "<b>Bu bot orqali kanaldagi animelarni yuklab olishingiz mumkin.\n\n"
-        "❗️Botga habar yozmang❗️</b>",
-        reply_markup=markup
-    )
-
-# ==========================
-#   START-LINK CONTENT VIEW (♾️ bilan)
-# ==========================
-@bot.message_handler(func=lambda m: m.text.startswith("/start ") and len(m.text.split()) == 2)
-def start_with_code(message):
-    code = message.text.split()[1]
-
-    items = list(contents.find({"code": code}).sort("order", 1))
-    if not items:
-        bot.send_message(message.chat.id, "❌ Kontent topilmadi.")
-        return
-
-    if not check_required_subs(message.from_user.id):
-        kb = get_required_keyboard(message.from_user.id, code)
-        bot.send_message(
-            message.chat.id,
-            "Animeni yuklab olish uchun quyidagi kanallarga obuna bo‘ling:",
-            reply_markup=kb
-        )
-        return
-
-    for item in items:
-        send_content(message.chat.id, item)
-
-# ==========================
-#   CALLBACK HANDLER (ABOUT / CREATOR / CLOSE)
-# ==========================
-@bot.callback_query_handler(func=lambda call: True)
-def callback(call):
-    data = call.data
-
-    if data.startswith("close"):
-        try:
-            bot.delete_message(call.message.chat.id, call.message.message_id)
-        except:
-            pass
-        return
-
-    if data == "about":
-        markup = InlineKeyboardMarkup()
-        markup.add(
-            InlineKeyboardButton("👨‍💻 Yaratuvchi", callback_data="creator"),
-            InlineKeyboardButton("🔒 Yopish", callback_data=f"close:{call.message.message_id}")
-        )
-
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text=(
-                "<b>"
-                "Botni ishlatishni bilmaganlar uchun!\n\n"
-                "❏ Botni ishlatish qo'llanmasi:\n"
-                "1. Kanallarga obuna bo'ling!\n"
-                "2. Tekshirish tugmasini bosing ✅\n"
-                "3. Kanaldagi anime post past qismidagi yuklab olish tugmasini bosing\n\n"
-                "📢 Kanal: <i>@AniGonUz</i>"
-                "</b>"
-            ),
-            reply_markup=markup
-        )
-
-    if data == "creator":
-        markup = InlineKeyboardMarkup()
-        markup.add(
-            InlineKeyboardButton("📝 Bot Haqida", callback_data="about"),
-            InlineKeyboardButton("🔒 Yopish", callback_data=f"close:{call.message.message_id}")
-        )
-
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text=(
-                "<b>"
-                "• Admin: <i>@Shadow_Sxi</i>\n"
-                "• Asosiy Kanal: <i>@AniGonUz</i>\n"
-                "• Reklama: <i>@AniReklamaUz</i>\n\n"
-                "👨‍💻 Savollar Boʻlsa: <i>@AniManxwaBot</i>"
-                "</b>"
-            ),
-            reply_markup=markup
-        )
-
-# ==========================
-#   MULTI-UPLOAD CONTENT SAVING
-# ==========================
-@bot.message_handler(content_types=['text', 'photo', 'video', 'document'])
-def save_multi(message):
-    uid = message.from_user.id
-    state = admin_state.get(uid)
-
-    if state not in ["multi_add_single", "multi_add_batch"]:
-        return
-
-    time.sleep(0.7)
-
-    if state == "multi_add_single":
-        code = generate_code()
-
-        if message.content_type == "video":
-            content = {
-                "type": "video",
-                "file_id": message.video.file_id,
-                "caption": message.caption,
-                "code": code,
-                "order": 1
-            }
-        elif message.content_type == "photo":
-            content = {
-                "type": "photo",
-                "file_id": message.photo[-1].file_id,
-                "caption": message.caption,
-                "code": code,
-                "order": 1
-            }
-        elif message.content_type == "document":
-            content = {
-                "type": "document",
-                "file_id": message.document.file_id,
-                "caption": message.caption,
-                "code": code,
-                "order": 1
-            }
-        else:
-            content = {
-                "type": "text",
-                "text": message.text,
-                "code": code,
-                "order": 1
-            }
-
-        contents.insert_one(content)
-        link = f"https://t.me/{BOT_USERNAME}?start={code}"
-        bot.reply_to(message, link)
-
-    elif state == "multi_add_batch":
-        batch = admin_data.get(uid, {}).get("batch", [])
-        order = len(batch) + 1
-
-        if message.content_type == "video":
-            item = {
-                "type": "video",
-                "file_id": message.video.file_id,
-                "caption": message.caption,
-                "order": order
-            }
-        elif message.content_type == "photo":
-            item = {
-                "type": "photo",
-                "file_id": message.photo[-1].file_id,
-                "caption": message.caption,
-                "order": order
-            }
-        elif message.content_type == "document":
-            item = {
-                "type": "document",
-                "file_id": message.document.file_id,
-                "caption": message.caption,
-                "order": order
-            }
-        else:
-            item = {
-                "type": "text",
-                "text": message.text,
-                "order": order
-            }
-
-        batch.append(item)
-        admin_data[uid]["batch"] = batch
-        bot.reply_to(message, f"✅ {order}-kontent qabul qilindi.")
-
-# ==========================
-#   XAVFSIZLIK: BOT ADMIN EMAS BO‘LSA KANALNI O‘CHIRISH
-# ==========================
-def security_check():
-    while True:
-        try:
-            channels = list(required_channels_collection.find({}))
-            for ch in channels:
-                channel_id = ch["channel_id"]
-                try:
-                    member = bot.get_chat_member(channel_id, bot.get_me().id)
-                    if member.status in ["administrator", "creator"]:
-                        continue
-
-                    required_channels_collection.delete_one({"_id": ch["_id"]})
-                    bot.send_message(
-                        ADMIN_ID,
-                        f"⚠️ <b>{ch['name']}</b> kanalidan chiqarildim.\n"
-                        f"Kanal majburiy ro‘yxatdan o‘chirildi."
-                    )
-                except:
-                    required_channels_collection.delete_one({"_id": ch["_id"]})
-                    bot.send_message(
-                        ADMIN_ID,
-                        f"⚠️ <b>{ch['name']}</b> kanaliga ulanib bo‘lmadi.\n"
-                        f"Kanal majburiy ro‘yxatdan o‘chirildi."
-                    )
-        except Exception as e:
-            print("Security error:", e)
-
-        time.sleep(20)
-
-threading.Thread(target=security_check).start()
-
-# ==========================
-#   RUN SERVER
-# ==========================
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+        schedule_delete(chat_id, warn.message
