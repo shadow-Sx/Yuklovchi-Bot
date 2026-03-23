@@ -40,7 +40,7 @@ users_collection = db["users"]
 referrals_collection = db["referrals"]
 user_referrals_collection = db["user_referrals"]
 bot_settings_collection = db["bot_settings"]
-required_bots_collection = db["required_bots"]  # Majburiy botlar uchun
+required_bots_collection = db["required_bots"]
 
 # ==========================
 #   FLASK SERVER
@@ -1218,7 +1218,7 @@ def back_to_required_menu(call):
     )
 
 # ==========================
-#   MAJBURIY OBUNA TEKSHIRISH (KANAL VA BOT)
+#   MAJBURIY OBUNA TEKSHIRISH
 # ==========================
 def check_required_subs(user_id):
     required = list(required_channels_collection.find({}))
@@ -1304,7 +1304,7 @@ def get_required_bots_keyboard(user_id, code):
     ))
     return kb
 
-def schedule_delete(chat_id, message_id, delay):
+def schedule_delete(chat_id, message_id, delay=300):
     def _delete():
         try:
             bot.delete_message(chat_id, message_id)
@@ -1326,13 +1326,13 @@ def send_content(chat_id, items, is_batch=False):
                 msg = bot.send_document(chat_id, item["file_id"], caption=item.get("caption"))
             
             if msg:
-                schedule_delete(chat_id, msg.message_id, 1200)
+                schedule_delete(chat_id, msg.message_id, 300)
         
         warn = bot.send_message(
             chat_id,
-            "<b>⚠️ ESLATMA ⚠️\n\n❗ Ushbu habarlar 20 daqiqadan so'ng o'chiriladi. Tezda saqlash joyingizga saqlab oling!</b>"
+            "<b>⚠️ ESLATMA ⚠️\n\n❗ Ushbu habarlar 5 daqiqadan so'ng o'chiriladi. Tezda saqlash joyingizga saqlab oling!</b>"
         )
-        schedule_delete(chat_id, warn.message_id, 1200)
+        schedule_delete(chat_id, warn.message_id, 300)
     
     else:
         for item in items:
@@ -1347,12 +1347,12 @@ def send_content(chat_id, items, is_batch=False):
                 msg = bot.send_document(chat_id, item["file_id"], caption=item.get("caption"))
             
             if msg:
-                schedule_delete(chat_id, msg.message_id, 1200)
+                schedule_delete(chat_id, msg.message_id, 300)
                 warn = bot.send_message(
                     chat_id,
-                    "<b>⚠️ ESLATMA ⚠️\n\n❗ Ushbu habar 20 daqiqadan so'ng o'chiriladi. Tezda saqlash joyingizga saqlab oling!</b>"
+                    "<b>⚠️ ESLATMA ⚠️\n\n❗ Ushbu habar 5 daqiqadan so'ng o'chiriladi. Tezda saqlash joyingizga saqlab oling!</b>"
                 )
-                schedule_delete(chat_id, warn.message_id, 1200)
+                schedule_delete(chat_id, warn.message_id, 300)
 
 # ==========================
 #   /start
@@ -1511,7 +1511,7 @@ def callback(call):
             reply_markup=markup
         )
 
-    # Video Edit callback'larini functions.py ga yuborish
+    # Video Edit callback
     if data.startswith("video_edit_"):
         functions.video_edit_callback(bot, call)
 
@@ -1521,11 +1521,9 @@ def callback(call):
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
     if message.from_user.id == ADMIN_ID:
-        # Rasm sozlash uchun
         if admin_state.get(message.from_user.id) == "set_main_image":
             save_main_image(message)
             return
-        # Video edit uchun
         functions.handle_image_upload(bot, message)
 
 @bot.message_handler(content_types=['video'])
