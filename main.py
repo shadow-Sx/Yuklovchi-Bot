@@ -137,7 +137,7 @@ def required_bots_menu():
 @bot.message_handler(commands=['admin'])
 def admin_start(message):
     if message.from_user.id != ADMIN_ID:
-        bot.reply_to(message, "❌ Siz admin emassiz!")
+        bot.reply_to(message, "")
         return
 
     users_collection.update_one(
@@ -278,8 +278,8 @@ def referral_save_name(message):
         bot.reply_to(message, "❌ Nom faqat lotin harflari, raqamlar va pastki chiziq (_) dan iborat bo'lishi kerak!")
         return
     
-    if len(name) < 3 or len(name) > 20:
-        bot.reply_to(message, "❌ Nom 3-20 belgi orasida bo'lishi kerak!")
+    if len(name) < 2 or len(name) > 150:
+        bot.reply_to(message, "❌ Nom 2-150 belgi orasida bo'lishi kerak!")
         return
     
     if referrals_collection.find_one({"name": name}):
@@ -1274,7 +1274,7 @@ def get_required_keyboard(user_id, code):
 
     kb.add(
         InlineKeyboardButton(
-            "✔️ Tekshirish",
+            "Tekshirish ♻️",
             url=f"https://t.me/{BOT_USERNAME}?start={code}"
         )
     )
@@ -1304,7 +1304,7 @@ def get_required_bots_keyboard(user_id, code):
         kb.add(btn)
     
     kb.add(InlineKeyboardButton(
-        "✔️ Tekshirish",
+        "Tekshirish ♻️",
         url=f"https://t.me/{BOT_USERNAME}?start={code}"
     ))
     return kb
@@ -1417,7 +1417,7 @@ def start(message):
 
         items = list(contents.find({"code": code}).sort("order", 1))
         if not items:
-            bot.send_message(message.chat.id, "❌ Kontent topilmadi.")
+            bot.send_message(message.chat.id, "")
             return
 
         if not check_required_subs(message.from_user.id):
@@ -1426,13 +1426,13 @@ def start(message):
                 bot.send_photo(
                     message.chat.id,
                     settings["image_id"],
-                    caption="📢 <b>Animeni yuklab olish uchun quyidagi kanallarga obuna bo'ling:</b>",
+                    caption="❗<b>Animeni yuklab olish uchun quyidagi kanallarga obuna bo'ling:</b>",
                     reply_markup=get_required_keyboard(message.from_user.id, code)
                 )
             else:
                 bot.send_message(
                     message.chat.id,
-                    "📢 <b>Animeni yuklab olish uchun quyidagi kanallarga obuna bo'ling:</b>",
+                    "❗ <b>Animeni yuklab olish uchun quyidagi kanallarga obuna bo'ling:</b>",
                     reply_markup=get_required_keyboard(message.from_user.id, code)
                 )
             return
@@ -1443,13 +1443,13 @@ def start(message):
                 bot.send_photo(
                     message.chat.id,
                     settings["image_id"],
-                    caption="📢 <b>Kontentni ko'rish uchun quyidagi botlarga start bosing:</b>",
+                    caption="❗ <b>Animeni yuklab olish uchun quyidagi botlarga start bosing:</b>",
                     reply_markup=get_required_bots_keyboard(message.from_user.id, code)
                 )
             else:
                 bot.send_message(
                     message.chat.id,
-                    "📢 <b>Kontentni ko'rish uchun quyidagi botlarga start bosing:</b>",
+                    "❗ <b>Animeni yuklab olish uchun quyidagi botlarga start bosing:</b>",
                     reply_markup=get_required_bots_keyboard(message.from_user.id, code)
                 )
             return
