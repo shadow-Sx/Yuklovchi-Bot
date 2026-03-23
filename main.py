@@ -340,7 +340,7 @@ def referral_back(call):
     )
 
 # ==========================
-#   BROADCAST
+#   BROADCAST (TUZATILGAN)
 # ==========================
 @bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) == "send_broadcast")
 def send_broadcast_handler(message):
@@ -359,9 +359,9 @@ def send_broadcast_handler(message):
 @bot.callback_query_handler(func=lambda c: c.data == "broadcast_confirm")
 def broadcast_confirm(call):
     uid = call.from_user.id
-    message = admin_data.get(uid, {}).get("broadcast_message")
+    msg = admin_data.get(uid, {}).get("broadcast_message")
     
-    if not message:
+    if not msg:
         bot.answer_callback_query(call.id, "❌ Xato yuz berdi!")
         return
     
@@ -377,30 +377,32 @@ def broadcast_confirm(call):
     
     for u in users:
         try:
-            if message.forward_from or message.forward_from_chat:
-                bot.copy_message(u["user_id"], message.chat.id, message.message_id)
-            elif message.content_type == "text":
-                bot.send_message(u["user_id"], message.text, parse_mode="HTML")
-            elif message.content_type == "photo":
-                bot.send_photo(u["user_id"], message.photo[-1].file_id, caption=message.caption)
-            elif message.content_type == "video":
-                bot.send_video(u["user_id"], message.video.file_id, caption=message.caption)
-            elif message.content_type == "document":
-                bot.send_document(u["user_id"], message.document.file_id, caption=message.caption)
-            elif message.content_type == "sticker":
-                bot.send_sticker(u["user_id"], message.sticker.file_id)
-            elif message.content_type == "audio":
-                bot.send_audio(u["user_id"], message.audio.file_id, caption=message.caption)
-            elif message.content_type == "voice":
-                bot.send_voice(u["user_id"], message.voice.file_id)
-            elif message.content_type == "video_note":
-                bot.send_video_note(u["user_id"], message.video_note.file_id)
+            # Forward qilingan xabarni yuborish
+            if msg.forward_from or msg.forward_from_chat or msg.forward_date:
+                bot.copy_message(u["user_id"], msg.chat.id, msg.message_id)
+            elif msg.content_type == "text":
+                bot.send_message(u["user_id"], msg.text, parse_mode="HTML")
+            elif msg.content_type == "photo":
+                bot.send_photo(u["user_id"], msg.photo[-1].file_id, caption=msg.caption)
+            elif msg.content_type == "video":
+                bot.send_video(u["user_id"], msg.video.file_id, caption=msg.caption)
+            elif msg.content_type == "document":
+                bot.send_document(u["user_id"], msg.document.file_id, caption=msg.caption)
+            elif msg.content_type == "sticker":
+                bot.send_sticker(u["user_id"], msg.sticker.file_id)
+            elif msg.content_type == "audio":
+                bot.send_audio(u["user_id"], msg.audio.file_id, caption=msg.caption)
+            elif msg.content_type == "voice":
+                bot.send_voice(u["user_id"], msg.voice.file_id)
+            elif msg.content_type == "video_note":
+                bot.send_video_note(u["user_id"], msg.video_note.file_id)
             else:
-                bot.copy_message(u["user_id"], message.chat.id, message.message_id)
+                bot.copy_message(u["user_id"], msg.chat.id, msg.message_id)
             success += 1
             time.sleep(0.05)
-        except:
+        except Exception as e:
             fail += 1
+            print(f"Xatolik {u.get('user_id')}: {e}")
     
     bot.edit_message_text(
         f"✅ Xabar yuborildi!\n\n✅ Muvaffaqiyatli: {success}\n❌ Xatolik: {fail}",
@@ -450,9 +452,9 @@ def multi_mode_select(call):
         )
 
 # ==========================
-#   MULTI-UPLOAD CONTENT SAVING
+#   MULTI-UPLOAD CONTENT SAVING (FAQAT KONTENT UCHUN)
 # ==========================
-@bot.message_handler(content_types=['text', 'photo', 'video', 'document'], func=lambda m: admin_state.get(m.from_user.id) in ["multi_add_single", "multi_add_batch"])
+@bot.message_handler(content_types=['text', 'photo', 'video', 'document'], func=lambda m: admin_state.get(m.from_user.id) in ["multi_add_single", "multi_add_batch"] and m.text != "/stop")
 def save_multi(message):
     uid = message.from_user.id
     state = admin_state.get(uid)
@@ -533,7 +535,7 @@ def save_multi(message):
         bot.reply_to(message, f"✅ {order}-kontent qabul qilindi.")
 
 # ==========================
-#   /stop
+#   /stop (TUZATILGAN)
 # ==========================
 @bot.message_handler(commands=['stop'])
 def stop(message):
@@ -573,6 +575,9 @@ def stop(message):
         admin_state[uid] = None
         bot.reply_to(message, "<b>✅ Barcha kontentlar qabul qilindi.</b>", reply_markup=admin_panel())
         return
+    
+    # Agar video edit yoki boshqa holatda bo'lsa
+    bot.reply_to(message, "❌ Hech qanday faol jarayon yo'q.")
 
 # ==========================
 #   MAJBURIY KANAL QO'SHISH
