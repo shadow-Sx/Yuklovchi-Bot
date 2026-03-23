@@ -358,14 +358,6 @@ def back_to_video_edit(bot, call):
         video_edit_state[uid]["step"] = "menu"
     video_edit_menu(bot, call.message.chat.id, call.message.message_id)
 
-def cancel_all_videos(bot, call):
-    """Barcha videolarni bekor qilish"""
-    uid = call.from_user.id
-    video_queue[uid] = []
-    video_processing[uid] = None
-    bot.answer_callback_query(call.id, "✅ Barcha videolar bekor qilindi!")
-    video_edit_menu(bot, call.message.chat.id, call.message.message_id)
-
 def video_edit_callback(bot, call):
     """Video edit callback'larini boshqarish"""
     data = call.data
@@ -472,7 +464,6 @@ def handle_text_copy_channel(bot, message):
     
     success = 0
     fail = 0
-    last_success = 0
     
     for i in range(1, count + 1):
         try:
@@ -490,7 +481,6 @@ def handle_text_copy_channel(bot, message):
                 bot.send_message(channel_id, formatted_text, parse_mode="HTML")
             
             success += 1
-            last_success = i
             
             if i % 10 == 0 or i == count:
                 try:
@@ -498,8 +488,7 @@ def handle_text_copy_channel(bot, message):
                         f"📤 Xabarlar yuborilmoqda...\n"
                         f"📝 Jami: {count} ta\n"
                         f"✅ {success}/{count} muvaffaqiyatli\n"
-                        f"❌ {fail} xatolik\n"
-                        f"📌 Oxirgi: {last_success}",
+                        f"❌ {fail} xatolik",
                         status_msg.chat.id,
                         status_msg.message_id
                     )
@@ -539,3 +528,4 @@ def cancel_text_copy(bot, message):
     if uid in text_copy_state:
         text_copy_state[uid] = {}
     bot.reply_to(message, "❌ Text Copy bekor qilindi.")
+    
