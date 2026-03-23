@@ -8,8 +8,8 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 # Global variables
 video_edit_state = {}
 text_copy_state = {}
-video_queue = {}  # Har bir foydalanuvchi uchun video navbati
-video_processing = {}  # Hozir ishlanayotgan videolar
+video_queue = {}
+video_processing = {}
 
 def video_edit_menu(bot, chat_id, message_id=None):
     """Video edit bo'limi menyusi"""
@@ -23,7 +23,6 @@ def video_edit_menu(bot, chat_id, message_id=None):
         InlineKeyboardButton("🔙 Orqaga", callback_data="video_edit_back")
     )
     
-    # Hozirgi navbatdagi videolar soni
     uid = chat_id
     queue_count = len(video_queue.get(uid, []))
     processing_count = 1 if video_processing.get(uid) else 0
@@ -31,14 +30,17 @@ def video_edit_menu(bot, chat_id, message_id=None):
     status_text = f"\n\n📊 <b>Holat:</b>\n• ⏳ Navbatda: {queue_count} ta\n• 🔄 Ishlanmoqda: {processing_count} ta"
     
     if message_id:
-        bot.edit_message_text(
-            f"🎬 Video ustiga rasm qo'yish bo'limiga xush kelibsiz!\n\n"
-            f"Avval rasm tanlang, so'ng videolarni yuboring.{status_text}",
-            chat_id,
-            message_id,
-            reply_markup=kb,
-            parse_mode="HTML"
-        )
+        try:
+            bot.edit_message_text(
+                f"🎬 Video ustiga rasm qo'yish bo'limiga xush kelibsiz!\n\n"
+                f"Avval rasm tanlang, so'ng videolarni yuboring.{status_text}",
+                chat_id,
+                message_id,
+                reply_markup=kb,
+                parse_mode="HTML"
+            )
+        except:
+            pass
     else:
         bot.send_message(
             chat_id,
@@ -69,15 +71,18 @@ def start_image_upload(bot, call):
         kb.add(InlineKeyboardButton("🗑 Rasmni o'chirish", callback_data="video_edit_delete_image"))
     kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="video_edit_back"))
     
-    bot.edit_message_text(
-        "🖼 Iltimos, yangi rasm yuboring.\n\n"
-        f"{'Oldingi rasm mavjud. Yangi rasm eskisini almashtiradi.' if current_image else ''}\n\n"
-        f"📌 <b>Eslatma:</b> Bu rasm <b>barcha</b> videolarga qo'llaniladi.",
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=kb,
-        parse_mode="HTML"
-    )
+    try:
+        bot.edit_message_text(
+            "🖼 Iltimos, yangi rasm yuboring.\n\n"
+            f"{'Oldingi rasm mavjud. Yangi rasm eskisini almashtiradi.' if current_image else ''}\n\n"
+            f"📌 <b>Eslatma:</b> Bu rasm <b>barcha</b> videolarga qo'llaniladi.",
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=kb,
+            parse_mode="HTML"
+        )
+    except:
+        pass
     
     video_edit_state[uid]["step"] = "waiting_image"
 
@@ -86,6 +91,10 @@ def handle_image_upload(bot, message):
     uid = message.from_user.id
     if video_edit_state.get(uid, {}).get("step") != "waiting_image":
         return False
+    
+    if not message.photo:
+        bot.reply_to(message, "❌ Iltimos, rasm yuboring!")
+        return True
     
     file_id = message.photo[-1].file_id
     video_edit_state[uid]["image_id"] = file_id
@@ -101,7 +110,10 @@ def delete_image(bot, call):
     if uid in video_edit_state:
         video_edit_state[uid]["image_id"] = None
     
-    video_edit_menu(bot, call.message.chat.id, call.message.message_id)
+    try:
+        video_edit_menu(bot, call.message.chat.id, call.message.message_id)
+    except:
+        pass
     bot.answer_callback_query(call.id, "✅ Rasm o'chirildi!")
 
 def format_size(size_bytes):
@@ -122,38 +134,32 @@ def process_video(bot, uid, video_data, status_msg):
     total = video_data["total"]
     
     try:
-        # Yuklanishni boshlash
         bot.edit_message_text(
             f"📤 <b>Video #{order}/{total}</b> qayta ishlanmoqda...\n\n"
             f"📁 Hajmi: {format_size(video.file_size)}\n"
-            f"⬇️ Yuklab olinmoqda... 0%",
+            f"⬇️ Yuklab olinmoqda...",
             status_msg.chat.id,
             status_msg.message_id,
             parse_mode="HTML"
         )
         
-        # Videoni yuklab olish
         file_info = bot.get_file(video.file_id)
         downloaded_file = bot.download_file(file_info.file_path)
         
         bot.edit_message_text(
             f"📤 <b>Video #{order}/{total}</b> qayta ishlanmoqda...\n\n"
             f"📁 Hajmi: {format_size(video.file_size)}\n"
-            f"✅ Yuklab olindi!\n"
-            f"🎬 Rasm qo'shilmoqda...",
+            f"✅ Yuklab olindi!\n🎬 Rasm qo'shilmoqda...",
             status_msg.chat.id,
             status_msg.message_id,
             parse_mode="HTML"
         )
         
-        # Rasmni olish
         image_info = bot.get_file(image_id)
         image_file = bot.download_file(image_info.file_path)
         
-        # Yangi video nomi
         video_name = f"@AniGonUz_{int(time.time())}_{order}.mp4"
         
-        # Videoni qayta yuklash
         bot.edit_message_text(
             f"📤 <b>Video #{order}/{total}</b> qayta ishlanmoqda...\n\n"
             f"📁 Hajmi: {format_size(video.file_size)}\n"
@@ -180,20 +186,17 @@ def process_video(bot, uid, video_data, status_msg):
             timeout=300
         )
         
-        # Tugatish
         bot.edit_message_text(
             f"✅ <b>Video #{order}/{total}</b> tayyor!\n\n"
-            f"📹 Video ID: {sent_video.video.file_id}\n"
-            f"📁 Hajmi: {format_size(video.file_size)}\n"
-            f"🏷 Nomi: {video_name}",
+            f"📹 Video ID: {sent_video.video.file_id[:20]}...\n"
+            f"📁 Hajmi: {format_size(video.file_size)}",
             status_msg.chat.id,
             status_msg.message_id,
             parse_mode="HTML"
         )
         
-        # Vaqtinchalik xabarni o'chirish (10 sekunddan keyin)
         def delete_temp():
-            time.sleep(10)
+            time.sleep(5)
             try:
                 bot.delete_message(status_msg.chat.id, status_msg.message_id)
             except:
@@ -203,46 +206,44 @@ def process_video(bot, uid, video_data, status_msg):
         return True
         
     except Exception as e:
-        bot.edit_message_text(
-            f"❌ <b>Video #{order}/{total}</b> xatolik!\n\n{str(e)}",
-            status_msg.chat.id,
-            status_msg.message_id,
-            parse_mode="HTML"
-        )
+        try:
+            bot.edit_message_text(
+                f"❌ <b>Video #{order}/{total}</b> xatolik!\n\n{str(e)}",
+                status_msg.chat.id,
+                status_msg.message_id,
+                parse_mode="HTML"
+            )
+        except:
+            pass
         return False
 
 def process_queue(bot, uid):
     """Navbatdagi videolarni qayta ishlash"""
     if video_processing.get(uid):
-        return  # Hozir video ishlanyapti
+        return
     
     if not video_queue.get(uid):
-        return  # Navbat bo'sh
+        return
     
-    # Navbatdan keyingi videoni olish
     next_video = video_queue[uid].pop(0)
     video_processing[uid] = next_video
     
-    # Progress xabarini yaratish
     status_msg = bot.send_message(
         next_video["message"].chat.id,
         f"🎬 <b>Video #{next_video['order']}/{next_video['total']}</b> ishlanmoqda...",
         parse_mode="HTML"
     )
     
-    # Fon threadda ishlatish
     def run():
-        result = process_video(bot, uid, next_video, status_msg)
+        process_video(bot, uid, next_video, status_msg)
         video_processing[uid] = None
-        # Keyingi videoni ishlatish
         process_queue(bot, uid)
-        # Menyuni yangilash
         video_edit_menu(bot, next_video["message"].chat.id)
     
     threading.Thread(target=run).start()
 
 def start_video_upload(bot, call):
-    """Video yuklashni boshlash (faqat birinchi video uchun)"""
+    """Video yuklashni boshlash"""
     uid = call.from_user.id
     
     if not video_edit_state.get(uid, {}).get("image_id"):
@@ -252,16 +253,18 @@ def start_video_upload(bot, call):
     kb = InlineKeyboardMarkup()
     kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="video_edit_back"))
     
-    bot.edit_message_text(
-        "🎬 Iltimos, videolarni yuboring.\n\n"
-        "✅ Bir nechta videolarni ketma-ket yuborishingiz mumkin\n"
-        "📊 Har bir video navbatga qo'shiladi va fonda ishlanadi\n"
-        "🔄 Jarayonni '📊 Jarayon' tugmasi orqali kuzatishingiz mumkin\n\n"
-        "⚠️ Videolar yuborilgandan so'ng avtomatik qayta ishlanadi!",
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=kb
-    )
+    try:
+        bot.edit_message_text(
+            "🎬 Iltimos, videolarni yuboring.\n\n"
+            "✅ Bir nechta videolarni ketma-ket yuborishingiz mumkin\n"
+            "📊 Har bir video navbatga qo'shiladi va fonda ishlanadi\n"
+            "🔄 Jarayonni '📊 Jarayon' tugmasi orqali kuzatishingiz mumkin",
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=kb
+        )
+    except:
+        pass
     
     video_edit_state[uid]["step"] = "waiting_video"
     video_edit_state[uid]["video_count"] = 0
@@ -281,20 +284,18 @@ def handle_video_upload(bot, message, bot_username):
         bot.reply_to(message, "❌ Rasm topilmadi! Avval rasm tanlang.")
         return True
     
-    # Video sonini hisoblash
     if "video_count" not in video_edit_state[uid]:
         video_edit_state[uid]["video_count"] = 0
     
     video_edit_state[uid]["video_count"] += 1
     order = video_edit_state[uid]["video_count"]
     
-    # Navbatga qo'shish
     video_data = {
         "video": message.video,
         "image_id": image_id,
         "message": message,
         "order": order,
-        "total": 0  # Keyin to'ldiriladi
+        "total": 0
     }
     
     if uid not in video_queue:
@@ -307,13 +308,10 @@ def handle_video_upload(bot, message, bot_username):
         message,
         f"✅ Video #{order} navbatga qo'shildi!\n"
         f"📊 Navbatdagi videolar: {queue_size} ta\n"
-        f"🔄 Ishlanmoqda: {1 if video_processing.get(uid) else 0} ta\n\n"
-        f"💡 Barcha videolar yuborilgandan so'ng avtomatik ishlanadi."
+        f"🔄 Ishlanmoqda: {1 if video_processing.get(uid) else 0} ta"
     )
     
-    # Agar hozir hech narsa ishlanmayotgan bo'lsa, darhol ishlatishni boshlash
     if not video_processing.get(uid):
-        # Total sonini yangilash
         for i, v in enumerate(video_queue[uid]):
             v["total"] = len(video_queue[uid])
         process_queue(bot, uid)
@@ -328,9 +326,7 @@ def get_status_text(uid):
     if processing:
         current = processing["order"]
         total = processing["total"]
-        video_name = processing["video"].file_id[:8] + "..."
-        size = format_size(processing["video"].file_size)
-        status = f"🔄 Ishlanmoqda: Video #{current}/{total}\n   📹 ID: {video_name}\n   📁 Hajmi: {size}"
+        status = f"🔄 Ishlanmoqda: Video #{current}/{total}"
     else:
         status = "⏸ Hech qanday video ishlanmayapti"
     
@@ -344,18 +340,22 @@ def show_status(bot, call):
     kb.add(InlineKeyboardButton("🔄 Yangilash", callback_data="video_edit_status"))
     kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="video_edit_back"))
     
-    bot.edit_message_text(
-        get_status_text(uid),
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=kb,
-        parse_mode="HTML"
-    )
+    try:
+        bot.edit_message_text(
+            get_status_text(uid),
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=kb,
+            parse_mode="HTML"
+        )
+    except:
+        pass
 
 def back_to_video_edit(bot, call):
     """Orqaga qaytish"""
     uid = call.from_user.id
-    video_edit_state[uid]["step"] = "menu"
+    if uid in video_edit_state:
+        video_edit_state[uid]["step"] = "menu"
     video_edit_menu(bot, call.message.chat.id, call.message.message_id)
 
 def cancel_all_videos(bot, call):
@@ -366,8 +366,23 @@ def cancel_all_videos(bot, call):
     bot.answer_callback_query(call.id, "✅ Barcha videolar bekor qilindi!")
     video_edit_menu(bot, call.message.chat.id, call.message.message_id)
 
+def video_edit_callback(bot, call):
+    """Video edit callback'larini boshqarish"""
+    data = call.data
+    
+    if data == "video_edit_image":
+        start_image_upload(bot, call)
+    elif data == "video_edit_video":
+        start_video_upload(bot, call)
+    elif data == "video_edit_delete_image":
+        delete_image(bot, call)
+    elif data == "video_edit_status":
+        show_status(bot, call)
+    elif data == "video_edit_back":
+        back_to_video_edit(bot, call)
+
 # ==========================
-#   TEXT COPY FUNCTIONS (o'zgarishsiz)
+#   TEXT COPY FUNCTIONS
 # ==========================
 
 def start_text_copy(bot, chat_id):
@@ -457,6 +472,7 @@ def handle_text_copy_channel(bot, message):
     
     success = 0
     fail = 0
+    last_success = 0
     
     for i in range(1, count + 1):
         try:
@@ -474,6 +490,7 @@ def handle_text_copy_channel(bot, message):
                 bot.send_message(channel_id, formatted_text, parse_mode="HTML")
             
             success += 1
+            last_success = i
             
             if i % 10 == 0 or i == count:
                 try:
@@ -481,7 +498,8 @@ def handle_text_copy_channel(bot, message):
                         f"📤 Xabarlar yuborilmoqda...\n"
                         f"📝 Jami: {count} ta\n"
                         f"✅ {success}/{count} muvaffaqiyatli\n"
-                        f"❌ {fail} xatolik",
+                        f"❌ {fail} xatolik\n"
+                        f"📌 Oxirgi: {last_success}",
                         status_msg.chat.id,
                         status_msg.message_id
                     )
@@ -492,7 +510,7 @@ def handle_text_copy_channel(bot, message):
             
         except Exception as e:
             fail += 1
-            print(f"Xatolik: {e}")
+            print(f"Xatolik ({i}): {e}")
     
     bot.edit_message_text(
         f"✅ Xabarlar yuborish tugallandi!\n\n"
@@ -504,7 +522,7 @@ def handle_text_copy_channel(bot, message):
     )
     
     def delete_temp():
-        time.sleep(10)
+        time.sleep(5)
         try:
             bot.delete_message(status_msg.chat.id, status_msg.message_id)
         except:
@@ -521,20 +539,3 @@ def cancel_text_copy(bot, message):
     if uid in text_copy_state:
         text_copy_state[uid] = {}
     bot.reply_to(message, "❌ Text Copy bekor qilindi.")
-
-# ... barcha funksiyalar ...
-
-def video_edit_callback(bot, call):
-    """Video edit callback'larini boshqarish"""
-    data = call.data
-    
-    if data == "video_edit_image":
-        start_image_upload(bot, call)
-    elif data == "video_edit_video":
-        start_video_upload(bot, call)
-    elif data == "video_edit_delete_image":
-        delete_image(bot, call)
-    elif data == "video_edit_status":
-        show_status(bot, call)
-    elif data == "video_edit_back":
-        back_to_video_edit(bot, call)
