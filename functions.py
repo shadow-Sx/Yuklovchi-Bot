@@ -3,7 +3,7 @@ import time
 import threading
 import requests
 import io
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto, InputMediaVideo
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # Global variables
 video_edit_state = {}
@@ -12,34 +12,23 @@ video_queue = {}
 video_processing = {}
 post_edit_state = {}
 
+# ADMIN ID (functions.py uchun global)
+ADMIN_ID = 7797502113
+BOT_USERNAME = None  # main.py dan set qilinadi
+
+def set_bot_username(username):
+    """Bot username ni set qilish"""
+    global BOT_USERNAME
+    BOT_USERNAME = username
+
 # ==========================
 #   PREMIUM FUNCTIONS
 # ==========================
 
-def is_premium_user(user_id):
-    """Foydalanuvchi premium yoki yo'qligini tekshirish"""
-    try:
-        chat_member = bot.get_chat_member(user_id, user_id)
-        return chat_member.status == "creator" or getattr(chat_member.user, 'is_premium', False)
-    except:
-        return False
-
-def get_premium_emoji(emoji_name):
-    """Premium emoji ID sini qaytarish"""
-    premium_emojis = {
-        "fire": "🔥",
-        "crown": "👑",
-        "star": "⭐",
-        "like": "👍",
-        "heart": "❤️",
-        "clap": "👏",
-        "rocket": "🚀"
-    }
-    return premium_emojis.get(emoji_name, "⭐")
-
-def add_premium_reaction(bot, chat_id, message_id, emoji="🔥"):
+def add_premium_reaction(bot, chat_id, message_id, emoji="🎉"):
     """Premium reaksiya qo'shish"""
     try:
+        time.sleep(0.3)
         bot.set_message_reaction(
             chat_id=chat_id,
             message_id=message_id,
@@ -47,11 +36,27 @@ def add_premium_reaction(bot, chat_id, message_id, emoji="🔥"):
             is_big=True
         )
         return True
-    except:
+    except Exception as e:
+        print(f"Reaksiya xatosi: {e}")
         return False
 
+def add_multiple_reactions(bot, chat_id, message_id, emojis=["🔥", "🎉"]):
+    """Bir nechta reaksiya qo'shish"""
+    for emoji in emojis:
+        try:
+            bot.set_message_reaction(
+                chat_id=chat_id,
+                message_id=message_id,
+                reaction=[{"type": "emoji", "emoji": emoji}],
+                is_big=True
+            )
+            time.sleep(0.2)
+        except:
+            pass
+    return True
+
 # ==========================
-#   POST EDITOR FUNCTIONS (YANGI)
+#   POST EDITOR FUNCTIONS
 # ==========================
 
 def start_post_editor(bot, message):
@@ -76,19 +81,15 @@ def handle_post_link(bot, message):
     
     post_url = message.text.strip()
     
-    # Postdan ma'lumot olish
     try:
-        # URL dan chat_id va message_id ni olish
         if "t.me/" in post_url:
             parts = post_url.split("/")
             username = parts[-2]
             msg_id = int(parts[-1])
             
-            # Kanal ID ni olish
             chat = bot.get_chat(f"@{username}")
             chat_id = chat.id
             
-            # Postni olish
             post = bot.forward_message(chat_id, chat_id, msg_id)
             
             post_edit_state[uid]["chat_id"] = chat_id
@@ -139,7 +140,6 @@ def add_button_to_post(bot, message):
         "url": button_url
     })
     
-    # Joriy tugmalarni ko'rsatish
     current_buttons = "\n".join([f"• {b['name']} -> {b['url']}" for b in post_edit_state[uid]["buttons"]])
     bot.reply_to(
         message,
@@ -162,33 +162,30 @@ def finish_post_editor(bot, message):
         bot.reply_to(message, "❌ Hech qanday tugma qo'shilmagan!")
         return
     
-    # Tugmalarni yaratish
     kb = InlineKeyboardMarkup(row_width=1)
     for btn in data["buttons"]:
         kb.add(InlineKeyboardButton(btn["name"], url=btn["url"]))
     
     try:
-        # Postni o'chirish
         bot.delete_message(data["chat_id"], data["message_id"])
         
-        # Yangi post yuborish (tugmalar bilan)
         content = data["content"]
         if content["photo"]:
-            bot.send_photo(
+            sent = bot.send_photo(
                 data["chat_id"],
                 content["photo"],
                 caption=content["caption"] or content["text"],
                 reply_markup=kb
             )
         elif content["video"]:
-            bot.send_video(
+            sent = bot.send_video(
                 data["chat_id"],
                 content["video"],
                 caption=content["caption"] or content["text"],
                 reply_markup=kb
             )
         else:
-            bot.send_message(
+            sent = bot.send_message(
                 data["chat_id"],
                 content["text"] or content["caption"],
                 reply_markup=kb,
@@ -196,14 +193,11 @@ def finish_post_editor(bot, message):
             )
         
         bot.reply_to(message, "✅ Post muvaffaqiyatli yangilandi va tugmalar qo'shildi!")
-        
-        # Premium reaksiya qo'shish
-        add_premium_reaction(bot, message.chat.id, message.message_id, "🎉")
+        add_premium_reaction(bot, sent.chat.id, sent.message_id, "📝")
         
     except Exception as e:
         bot.reply_to(message, f"❌ Xatolik: {str(e)}")
     
-    # State ni tozalash
     post_edit_state[uid] = {}
 
 def cancel_post_editor(bot, message):
@@ -265,8 +259,6 @@ def start_video_edit(bot, message):
     if uid not in video_processing:
         video_processing[uid] = None
     video_edit_menu(bot, message.chat.id, message.message_id)
-    
-    # Premium reaksiya
     add_premium_reaction(bot, message.chat.id, message.message_id, "🎬")
 
 def start_image_upload(bot, call):
@@ -310,8 +302,8 @@ def handle_image_upload(bot, message):
     video_edit_state[uid]["step"] = "menu"
     
     video_edit_menu(bot, message.chat.id)
-    bot.send_message(message.chat.id, "✅ Rasm muvaffaqiyatli saqlandi! Endi videolarni yuborishingiz mumkin.")
-    add_premium_reaction(bot, message.chat.id, message.message_id, "✅")
+    sent = bot.send_message(message.chat.id, "✅ Rasm muvaffaqiyatli saqlandi! Endi videolarni yuborishingiz mumkin.")
+    add_premium_reaction(bot, sent.chat.id, sent.message_id, "✅")
     return True
 
 def delete_image(bot, call):
@@ -405,8 +397,7 @@ def process_video(bot, uid, video_data, status_msg):
             parse_mode="HTML"
         )
         
-        # Premium reaksiya
-        add_premium_reaction(bot, message.chat.id, sent_video.message_id, "🎉")
+        add_premium_reaction(bot, sent_video.chat.id, sent_video.message_id, "🎬")
         
         def delete_temp():
             time.sleep(5)
@@ -732,8 +723,6 @@ def handle_text_copy_channel(bot, message):
     threading.Thread(target=delete_temp).start()
     
     text_copy_state[uid] = {}
-    
-    # Premium reaksiya
     add_premium_reaction(bot, message.chat.id, message.message_id, "✅")
     
     return True
