@@ -3,13 +3,219 @@ import time
 import threading
 import requests
 import io
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto, InputMediaVideo
 
 # Global variables
 video_edit_state = {}
 text_copy_state = {}
 video_queue = {}
 video_processing = {}
+post_edit_state = {}
+
+# ==========================
+#   PREMIUM FUNCTIONS
+# ==========================
+
+def is_premium_user(user_id):
+    """Foydalanuvchi premium yoki yo'qligini tekshirish"""
+    try:
+        chat_member = bot.get_chat_member(user_id, user_id)
+        return chat_member.status == "creator" or getattr(chat_member.user, 'is_premium', False)
+    except:
+        return False
+
+def get_premium_emoji(emoji_name):
+    """Premium emoji ID sini qaytarish"""
+    premium_emojis = {
+        "fire": "🔥",
+        "crown": "👑",
+        "star": "⭐",
+        "like": "👍",
+        "heart": "❤️",
+        "clap": "👏",
+        "rocket": "🚀"
+    }
+    return premium_emojis.get(emoji_name, "⭐")
+
+def add_premium_reaction(bot, chat_id, message_id, emoji="🔥"):
+    """Premium reaksiya qo'shish"""
+    try:
+        bot.set_message_reaction(
+            chat_id=chat_id,
+            message_id=message_id,
+            reaction=[{"type": "emoji", "emoji": emoji}],
+            is_big=True
+        )
+        return True
+    except:
+        return False
+
+# ==========================
+#   POST EDITOR FUNCTIONS (YANGI)
+# ==========================
+
+def start_post_editor(bot, message):
+    """Post tayyorlashni boshlash"""
+    uid = message.from_user.id
+    post_edit_state[uid] = {"step": "waiting_post_link", "buttons": []}
+    bot.reply_to(
+        message,
+        "📝 <b>Post tayyorlash bo'limiga xush kelibsiz!</b>\n\n"
+        "1. Avval post havolasini yuboring (kanaldagi post)\n"
+        "2. So'ng tugmalar qo'shishingiz mumkin\n"
+        "3. Tugatish uchun /done buyrug'ini yuboring\n\n"
+        "⚠️ Bot kanalda admin bo'lishi kerak!",
+        parse_mode="HTML"
+    )
+
+def handle_post_link(bot, message):
+    """Post havolasini qabul qilish"""
+    uid = message.from_user.id
+    if post_edit_state.get(uid, {}).get("step") != "waiting_post_link":
+        return False
+    
+    post_url = message.text.strip()
+    
+    # Postdan ma'lumot olish
+    try:
+        # URL dan chat_id va message_id ni olish
+        if "t.me/" in post_url:
+            parts = post_url.split("/")
+            username = parts[-2]
+            msg_id = int(parts[-1])
+            
+            # Kanal ID ni olish
+            chat = bot.get_chat(f"@{username}")
+            chat_id = chat.id
+            
+            # Postni olish
+            post = bot.forward_message(chat_id, chat_id, msg_id)
+            
+            post_edit_state[uid]["chat_id"] = chat_id
+            post_edit_state[uid]["message_id"] = msg_id
+            post_edit_state[uid]["content"] = {
+                "text": post.text if post.text else "",
+                "caption": post.caption if post.caption else "",
+                "photo": post.photo[-1].file_id if post.photo else None,
+                "video": post.video.file_id if post.video else None,
+                "document": post.document.file_id if post.document else None
+            }
+            
+            bot.reply_to(message, "✅ Post topildi! Endi tugmalar qo'shishingiz mumkin.\n\n"
+                         "Tugma qo'shish uchun format:\n"
+                         "<code>tugma_nomi | havola</code>\n\n"
+                         "Masalan:\n"
+                         "<code>Kanalimiz | https://t.me/kanal</code>\n\n"
+                         "Tugatish uchun /done yuboring")
+            
+            post_edit_state[uid]["step"] = "waiting_buttons"
+            return True
+            
+    except Exception as e:
+        bot.reply_to(message, f"❌ Xatolik: {str(e)}\n\nIltimos, to'g'ri post havolasini yuboring!")
+        return True
+
+def add_button_to_post(bot, message):
+    """Postga tugma qo'shish"""
+    uid = message.from_user.id
+    if post_edit_state.get(uid, {}).get("step") != "waiting_buttons":
+        return False
+    
+    text = message.text.strip()
+    if "|" not in text:
+        bot.reply_to(message, "❌ Noto'g'ri format! Tugma nomi va havolani '|' bilan ajrating.\n"
+                     "Masalan: <code>Kanalimiz | https://t.me/kanal</code>")
+        return True
+    
+    button_name, button_url = text.split("|", 1)
+    button_name = button_name.strip()
+    button_url = button_url.strip()
+    
+    if not button_url.startswith(("http://", "https://")):
+        button_url = "https://" + button_url
+    
+    post_edit_state[uid]["buttons"].append({
+        "name": button_name,
+        "url": button_url
+    })
+    
+    # Joriy tugmalarni ko'rsatish
+    current_buttons = "\n".join([f"• {b['name']} -> {b['url']}" for b in post_edit_state[uid]["buttons"]])
+    bot.reply_to(
+        message,
+        f"✅ Tugma qo'shildi!\n\n"
+        f"📋 <b>Joriy tugmalar:</b>\n{current_buttons}\n\n"
+        f"Yana tugma qo'shishingiz mumkin yoki /done bilan tugating.",
+        parse_mode="HTML"
+    )
+    return True
+
+def finish_post_editor(bot, message):
+    """Postni tugmalar bilan qayta yuborish"""
+    uid = message.from_user.id
+    if uid not in post_edit_state:
+        bot.reply_to(message, "❌ Hech qanday faol jarayon yo'q!")
+        return
+    
+    data = post_edit_state[uid]
+    if not data.get("buttons"):
+        bot.reply_to(message, "❌ Hech qanday tugma qo'shilmagan!")
+        return
+    
+    # Tugmalarni yaratish
+    kb = InlineKeyboardMarkup(row_width=1)
+    for btn in data["buttons"]:
+        kb.add(InlineKeyboardButton(btn["name"], url=btn["url"]))
+    
+    try:
+        # Postni o'chirish
+        bot.delete_message(data["chat_id"], data["message_id"])
+        
+        # Yangi post yuborish (tugmalar bilan)
+        content = data["content"]
+        if content["photo"]:
+            bot.send_photo(
+                data["chat_id"],
+                content["photo"],
+                caption=content["caption"] or content["text"],
+                reply_markup=kb
+            )
+        elif content["video"]:
+            bot.send_video(
+                data["chat_id"],
+                content["video"],
+                caption=content["caption"] or content["text"],
+                reply_markup=kb
+            )
+        else:
+            bot.send_message(
+                data["chat_id"],
+                content["text"] or content["caption"],
+                reply_markup=kb,
+                parse_mode="HTML"
+            )
+        
+        bot.reply_to(message, "✅ Post muvaffaqiyatli yangilandi va tugmalar qo'shildi!")
+        
+        # Premium reaksiya qo'shish
+        add_premium_reaction(bot, message.chat.id, message.message_id, "🎉")
+        
+    except Exception as e:
+        bot.reply_to(message, f"❌ Xatolik: {str(e)}")
+    
+    # State ni tozalash
+    post_edit_state[uid] = {}
+
+def cancel_post_editor(bot, message):
+    """Post tayyorlashni bekor qilish"""
+    uid = message.from_user.id
+    if uid in post_edit_state:
+        post_edit_state[uid] = {}
+    bot.reply_to(message, "❌ Post tayyorlash bekor qilindi.")
+
+# ==========================
+#   VIDEO EDIT FUNCTIONS
+# ==========================
 
 def video_edit_menu(bot, chat_id, message_id=None):
     """Video edit bo'limi menyusi"""
@@ -59,6 +265,9 @@ def start_video_edit(bot, message):
     if uid not in video_processing:
         video_processing[uid] = None
     video_edit_menu(bot, message.chat.id, message.message_id)
+    
+    # Premium reaksiya
+    add_premium_reaction(bot, message.chat.id, message.message_id, "🎬")
 
 def start_image_upload(bot, call):
     """Rasm yuklashni boshlash"""
@@ -102,6 +311,7 @@ def handle_image_upload(bot, message):
     
     video_edit_menu(bot, message.chat.id)
     bot.send_message(message.chat.id, "✅ Rasm muvaffaqiyatli saqlandi! Endi videolarni yuborishingiz mumkin.")
+    add_premium_reaction(bot, message.chat.id, message.message_id, "✅")
     return True
 
 def delete_image(bot, call):
@@ -194,6 +404,9 @@ def process_video(bot, uid, video_data, status_msg):
             status_msg.message_id,
             parse_mode="HTML"
         )
+        
+        # Premium reaksiya
+        add_premium_reaction(bot, message.chat.id, sent_video.message_id, "🎉")
         
         def delete_temp():
             time.sleep(5)
@@ -520,6 +733,9 @@ def handle_text_copy_channel(bot, message):
     
     text_copy_state[uid] = {}
     
+    # Premium reaksiya
+    add_premium_reaction(bot, message.chat.id, message.message_id, "✅")
+    
     return True
 
 def cancel_text_copy(bot, message):
@@ -528,4 +744,3 @@ def cancel_text_copy(bot, message):
     if uid in text_copy_state:
         text_copy_state[uid] = {}
     bot.reply_to(message, "❌ Text Copy bekor qilindi.")
-    
