@@ -60,7 +60,7 @@ def webhook():
 def keep_alive():
     while True:
         try:
-            requests.get("https://yuklovchi-bot-80ui.onrender.com")
+            requests.get("https://yuklovchi-bot-5kne.onrender.com")
         except:
             pass
         time.sleep(60)
