@@ -1014,7 +1014,7 @@ def edit_required_menu(call):
     )
 
 # ==========================
-#   O'CHIRISH (KANAL UCHUN) - qisqartirilgan
+#   O'CHIRISH (KANAL UCHUN) - TUZATILGAN
 # ==========================
 @bot.callback_query_handler(func=lambda c: c.data == "req_delete")
 def start_required_delete(call):
@@ -1038,42 +1038,132 @@ def start_required_delete(call):
 @bot.callback_query_handler(func=lambda c: c.data == "del_req_list")
 def delete_required_list(call):
     channels = list(required_channels_collection.find({}))
+    if not channels:
+        bot.edit_message_text(
+            "❌ Majburiy kanallar yo'q.",
+            call.message.chat.id,
+            call.message.message_id
+        )
+        return
+    
     kb = InlineKeyboardMarkup()
     for ch in channels:
         kb.add(
             InlineKeyboardButton(
-                f"{ch['name']}",
-                callback_data=f"del_req:{ch['_id']}"
+                f"🗑 {ch['name']}",
+                callback_data=f"del_req_confirm:{ch['_id']}"
             )
         )
     kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="req_delete"))
 
     bot.edit_message_text(
-        "🗑 O'chirish uchun majburiy kanalni tanlang:",
+        "🗑 O'chirish uchun kanalni tanlang:",
         call.message.chat.id,
         call.message.message_id,
         reply_markup=kb
     )
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("del_req_confirm:"))
+def delete_required_confirm(call):
+    ch_id = call.data.split(":")[1]
+    ch = required_channels_collection.find_one({"_id": ObjectId(ch_id)})
+
+    kb = InlineKeyboardMarkup()
+    kb.add(
+        InlineKeyboardButton("✅ Ha, o'chirish", callback_data=f"del_req_yes:{ch_id}"),
+        InlineKeyboardButton("❌ Yo'q", callback_data="del_req_list")
+    )
+
+    bot.edit_message_text(
+        f"⚠️ <b>{ch['name']}</b> kanalini o'chirmoqchimisiz?",
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=kb
+    )
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("del_req_yes:"))
+def delete_required_yes(call):
+    ch_id = call.data.split(":")[1]
+    required_channels_collection.delete_one({"_id": ObjectId(ch_id)})
+
+    # Avto nomlangan kanallarni qayta nomlash
+    auto_channels = list(required_channels_collection.find({"auto": True}))
+    auto_channels.sort(key=lambda x: x.get("name", ""))
+    for i, ch in enumerate(auto_channels):
+        new_name = f"{i+1}-Kanal"
+        required_channels_collection.update_one(
+            {"_id": ch["_id"]},
+            {"$set": {"name": new_name}}
+        )
+
+    bot.edit_message_text(
+        "✅ Kanal o'chirildi!",
+        call.message.chat.id,
+        call.message.message_id
+    )
+    
+    # Ro'yxatni yangilash
+    delete_required_list(call)
 
 @bot.callback_query_handler(func=lambda c: c.data == "del_opt_list")
 def delete_optional_list(call):
     channels = list(optional_channels_collection.find({}))
+    if not channels:
+        bot.edit_message_text(
+            "❌ Ixtiyoriy kanallar yo'q.",
+            call.message.chat.id,
+            call.message.message_id
+        )
+        return
+    
     kb = InlineKeyboardMarkup()
     for ch in channels:
         kb.add(
             InlineKeyboardButton(
-                f"{ch['name']}",
-                callback_data=f"del_opt:{ch['_id']}"
+                f"🗑 {ch['name']}",
+                callback_data=f"del_opt_confirm:{ch['_id']}"
             )
         )
     kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="req_delete"))
 
     bot.edit_message_text(
-        "🗑 O'chirish uchun ixtiyoriy kanalni tanlang:",
+        "🗑 O'chirish uchun kanalni tanlang:",
         call.message.chat.id,
         call.message.message_id,
         reply_markup=kb
     )
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("del_opt_confirm:"))
+def delete_optional_confirm(call):
+    ch_id = call.data.split(":")[1]
+    ch = optional_channels_collection.find_one({"_id": ObjectId(ch_id)})
+
+    kb = InlineKeyboardMarkup()
+    kb.add(
+        InlineKeyboardButton("✅ Ha, o'chirish", callback_data=f"del_opt_yes:{ch_id}"),
+        InlineKeyboardButton("❌ Yo'q", callback_data="del_opt_list")
+    )
+
+    bot.edit_message_text(
+        f"⚠️ <b>{ch['name']}</b> kanalini o'chirmoqchimisiz?",
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=kb
+    )
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("del_opt_yes:"))
+def delete_optional_yes(call):
+    ch_id = call.data.split(":")[1]
+    optional_channels_collection.delete_one({"_id": ObjectId(ch_id)})
+
+    bot.edit_message_text(
+        "✅ Kanal o'chirildi!",
+        call.message.chat.id,
+        call.message.message_id
+    )
+    
+    # Ro'yxatni yangilash
+    delete_optional_list(call)
 
 @bot.callback_query_handler(func=lambda c: c.data == "req_back")
 def back_to_required_menu(call):
@@ -1083,7 +1173,6 @@ def back_to_required_menu(call):
         call.message.message_id,
         reply_markup=required_menu()
     )
-
 # ==========================
 #   MAJBURIY OBUNA TEKSHIRISH
 # ==========================
@@ -1356,8 +1445,14 @@ def callback(call):
     if data == "about":
         markup = InlineKeyboardMarkup()
         markup.add(
-            InlineKeyboardButton("👨‍💻 Yaratuvchi", callback_data="creator"),
-            InlineKeyboardButton("🔒 Yopish", callback_data=f"close:{call.message.message_id}")
+            InlineKeyboardButton(
+                f"<custom_emoji id='5375291170266030224'>👨‍💻</custom_emoji> Yaratuvchi", 
+                callback_data="creator"
+            ),
+            InlineKeyboardButton(
+                f"<custom_emoji id='5215368075884372074'>🔒</custom_emoji> Yopish", 
+                callback_data=f"close:{call.message.message_id}"
+            )
         )
 
         bot.edit_message_text(
@@ -1369,20 +1464,27 @@ def callback(call):
                 "❏ Botni ishlatish qo'llanmasi:\n"
                 "1. Kanallarga obuna bo'ling!\n"
                 "2. Botlarga start bosing!\n"
-                "3. Tekshirish tugmasini bosing ✅\n"
+                f"3. <custom_emoji id='5823396554345549784'>✅</custom_emoji> Tekshirish tugmasini bosing\n"
                 "4. Kanaldagi anime post past qismidagi yuklab olish tugmasini bosing\n\n"
-                "📢 Kanal: <i>@AniGonUz</i>"
+                f"<custom_emoji id='5771695636411847302'>📢</custom_emoji> Kanal: <i>@AniGonUz</i>"
                 "</b>"
             ),
-            reply_markup=markup
+            reply_markup=markup,
+            parse_mode="HTML"
         )
         functions.add_premium_reaction(bot, call.message.chat.id, call.message.message_id, "📖")
 
     if data == "creator":
         markup = InlineKeyboardMarkup()
         markup.add(
-            InlineKeyboardButton("📝 Bot Haqida", callback_data="about"),
-            InlineKeyboardButton("🔒 Yopish", callback_data=f"close:{call.message.message_id}")
+            InlineKeyboardButton(
+                f"<custom_emoji id='5434144690511290129'>📝</custom_emoji> Bot Haqida", 
+                callback_data="about"
+            ),
+            InlineKeyboardButton(
+                f"<custom_emoji id='5215368075884372074'>🔒</custom_emoji> Yopish", 
+                callback_data=f"close:{call.message.message_id}"
+            )
         )
 
         bot.edit_message_text(
@@ -1390,13 +1492,14 @@ def callback(call):
             message_id=call.message.message_id,
             text=(
                 "<b>"
-                "• Admin: <i>@Shadow_Sxi</i>\n"
-                "• Asosiy Kanal: <i>@AniGonUz</i>\n"
-                "• Reklama: <i>@AniReklamaUz</i>\n\n"
-                "👨‍💻 Savollar Bo'lsa: <i>@AniManxwaBot</i>"
+                f"<custom_emoji id='5375291170266030224'>👨‍💻</custom_emoji> Admin: <i>@Shadow_Sxi</i>\n"
+                f"<custom_emoji id='5771695636411847302'>📢</custom_emoji> Asosiy Kanal: <i>@AniGonUz</i>\n"
+                f"<custom_emoji id='5771695636411847302'>📢</custom_emoji> Reklama: <i>@AniReklamaUz</i>\n\n"
+                f"<custom_emoji id='5375291170266030224'>👨‍💻</custom_emoji> Savollar Bo'lsa: <i>@AniManxwaBot</i>"
                 "</b>"
             ),
-            reply_markup=markup
+            reply_markup=markup,
+            parse_mode="HTML"
         )
         functions.add_premium_reaction(bot, call.message.chat.id, call.message.message_id, "👨‍💻")
 
