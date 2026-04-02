@@ -4,7 +4,6 @@ import random
 import string
 import threading
 import requests
-import io
 import telebot
 from flask import Flask, request
 from telebot.types import (
@@ -14,6 +13,10 @@ from telebot.types import (
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 
+# Import functions
+import functions
+from functions import video_edit_state, text_copy_state, post_edit_state
+
 # ==========================
 #   TOKEN & SETTINGS
 # ==========================
@@ -22,6 +25,9 @@ BOT_USERNAME = os.getenv("BOT_USERNAME")
 ADMIN_ID = 7797502113
 
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
+
+# functions.py ga username ni set qilish
+functions.set_bot_username(BOT_USERNAME)
 
 # ==========================
 #   MONGO DB CONNECTION
@@ -38,7 +44,6 @@ referrals_collection = db["referrals"]
 user_referrals_collection = db["user_referrals"]
 bot_settings_collection = db["bot_settings"]
 required_bots_collection = db["required_bots"]
-user_channels_collection = db["user_channels"]
 
 # ==========================
 #   FLASK SERVER
@@ -79,22 +84,6 @@ admin_state = {}
 admin_data = {}
 
 # ==========================
-#   PREMIUM REAKSIYA
-# ==========================
-def add_premium_reaction(chat_id, message_id, emoji="🎉"):
-    try:
-        time.sleep(0.3)
-        bot.set_message_reaction(
-            chat_id=chat_id,
-            message_id=message_id,
-            reaction=[{"type": "emoji", "emoji": emoji}],
-            is_big=True
-        )
-        return True
-    except:
-        return False
-
-# ==========================
 #   ADMIN PANEL
 # ==========================
 def admin_panel():
@@ -104,12 +93,16 @@ def admin_panel():
         KeyboardButton("Majburi Obuna")
     )
     markup.row(
-        KeyboardButton("Referal"),
-        KeyboardButton("Rasm Sozlash")
+        KeyboardButton("Habar Yuborish"),
+        KeyboardButton("Referal")
     )
     markup.row(
-        KeyboardButton("Video Edit"),
-        KeyboardButton("ID")
+        KeyboardButton("Rasm Sozlash"),
+        KeyboardButton("Video Edit")
+    )
+    markup.row(
+        KeyboardButton("Text Copy"),
+        KeyboardButton("Post Tayyorla")
     )
     markup.row(
         KeyboardButton("🔙 Chiqish")
@@ -160,14 +153,14 @@ def admin_start(message):
     )
 
     sent = bot.reply_to(message, "⚙️ Admin panelga xush kelibsiz!", reply_markup=admin_panel())
-    add_premium_reaction(sent.chat.id, sent.message_id, "👑")
+    functions.add_premium_reaction(bot, sent.chat.id, sent.message_id, "👑")
 
 # ==========================
 #   ADMIN BUTTONS
 # ==========================
 @bot.message_handler(func=lambda m: m.from_user.id == ADMIN_ID and m.text in [
-    "Cantent Qo'shish", "Majburi Obuna", "Referal", 
-    "Rasm Sozlash", "Video Edit", "ID", "🔙 Chiqish"
+    "Cantent Qo'shish", "Majburi Obuna", "Habar Yuborish", "Referal", 
+    "Rasm Sozlash", "Video Edit", "Text Copy", "Post Tayyorla", "🔙 Chiqish"
 ])
 def admin_buttons(message):
     uid = message.from_user.id
@@ -176,11 +169,15 @@ def admin_buttons(message):
     if text == "Cantent Qo'shish":
         kb = InlineKeyboardMarkup()
         kb.add(
-            InlineKeyboardButton("📤 1 - 1", callback_data="multi_mode_single"),
-            InlineKeyboardButton("📚 ♾️ - 1", callback_data="multi_mode_batch")
+            InlineKeyboardButton("1 - 1", callback_data="multi_mode_single"),
+            InlineKeyboardButton("♾️ - 1", callback_data="multi_mode_batch")
         )
         admin_state[uid] = None
         bot.reply_to(message, "Qaysi tarzda kontent qo'shmoqchisiz?", reply_markup=kb)
+
+    elif text == "Habar Yuborish":
+        admin_state[uid] = "send_broadcast"
+        bot.reply_to(message, "📨 Xabar yuboring (forward qilingan xabar ham bo'lishi mumkin):")
 
     elif text == "Majburi Obuna":
         bot.send_message(message.chat.id, "📌 Majburiy obuna bo'limi:", reply_markup=required_menu())
@@ -200,394 +197,18 @@ def admin_buttons(message):
         bot.reply_to(message, "🖼 Majburiy obuna xabari uchun rasm yuboring:", reply_markup=kb)
 
     elif text == "Video Edit":
-        start_video_edit(message)
+        functions.start_video_edit(bot, message)
 
-    elif text == "ID":
-        id_menu(message)
+    elif text == "Text Copy":
+        functions.start_text_copy(bot, uid)
+
+    elif text == "Post Tayyorla":
+        functions.start_post_editor(bot, message)
 
     elif text == "🔙 Chiqish":
         admin_state[uid] = None
         admin_data[uid] = {}
         bot.send_message(uid, "<b>Admin paneldan chiqdingiz.</b>", reply_markup=telebot.types.ReplyKeyboardRemove())
-
-# ==========================
-#   VIDEO EDIT FUNKSIYALARI
-# ==========================
-video_edit_state = {}
-video_queue = {}
-video_processing = {}
-
-def video_edit_menu(chat_id, message_id=None):
-    kb = InlineKeyboardMarkup()
-    kb.add(
-        InlineKeyboardButton("🖼 Rasm tanlash", callback_data="video_edit_image"),
-        InlineKeyboardButton("🎬 Video yuborish", callback_data="video_edit_video")
-    )
-    kb.add(
-        InlineKeyboardButton("📊 Holat", callback_data="video_edit_status"),
-        InlineKeyboardButton("🔙 Chiqish", callback_data="video_edit_exit")
-    )
-    
-    uid = chat_id
-    queue_count = len(video_queue.get(uid, []))
-    processing_count = 1 if video_processing.get(uid) else 0
-    
-    status_text = f"\n\n📊 <b>Holat:</b>\n• ⏳ Navbatda: {queue_count} ta\n• 🔄 Ishlanmoqda: {processing_count} ta"
-    
-    if message_id:
-        try:
-            bot.edit_message_text(
-                f"🎬 <b>Video ustiga rasm qo'yish</b>\n\n"
-                f"1. Avval rasm tanlang\n"
-                f"2. So'ng videolarni yuboring{status_text}",
-                chat_id,
-                message_id,
-                reply_markup=kb,
-                parse_mode="HTML"
-            )
-        except:
-            pass
-    else:
-        bot.send_message(
-            chat_id,
-            f"🎬 <b>Video ustiga rasm qo'yish</b>\n\n"
-            f"1. Avval rasm tanlang\n"
-            f"2. So'ng videolarni yuboring{status_text}",
-            reply_markup=kb,
-            parse_mode="HTML"
-        )
-
-def start_video_edit(message):
-    uid = message.from_user.id
-    video_edit_state[uid] = {"step": "menu", "image_id": None}
-    if uid not in video_queue:
-        video_queue[uid] = []
-    if uid not in video_processing:
-        video_processing[uid] = None
-    video_edit_menu(message.chat.id, message.message_id)
-
-@bot.callback_query_handler(func=lambda c: c.data.startswith("video_edit_"))
-def video_edit_callback(call):
-    uid = call.from_user.id
-    data = call.data
-    
-    if data == "video_edit_image":
-        current_image = video_edit_state.get(uid, {}).get("image_id")
-        kb = InlineKeyboardMarkup()
-        if current_image:
-            kb.add(InlineKeyboardButton("🗑 Rasmni o'chirish", callback_data="video_edit_delete_image"))
-        kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="video_edit_back"))
-        
-        bot.edit_message_text(
-            "🖼 <b>Rasm yuboring</b>\n\n"
-            f"{'Oldingi rasm mavjud. Yangi rasm eskisini almashtiradi.' if current_image else ''}",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=kb,
-            parse_mode="HTML"
-        )
-        video_edit_state[uid]["step"] = "waiting_image"
-        
-    elif data == "video_edit_video":
-        if not video_edit_state.get(uid, {}).get("image_id"):
-            bot.answer_callback_query(call.id, "❌ Avval rasm tanlang!", show_alert=True)
-            return
-        
-        kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="video_edit_back"))
-        
-        bot.edit_message_text(
-            "🎬 <b>Videolarni yuboring</b>\n\n"
-            "Bir nechta videolarni ketma-ket yuborishingiz mumkin.\n"
-            "Har bir video navbatga qo'shiladi.",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=kb
-        )
-        video_edit_state[uid]["step"] = "waiting_video"
-        video_edit_state[uid]["video_count"] = 0
-        
-    elif data == "video_edit_status":
-        queue_count = len(video_queue.get(uid, []))
-        processing = video_processing.get(uid)
-        
-        if processing:
-            status = f"🔄 Ishlanmoqda: Video #{processing['order']}/{processing['total']}"
-        else:
-            status = "⏸ Hech qanday video ishlanmayapti"
-        
-        kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("🔄 Yangilash", callback_data="video_edit_status"))
-        kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="video_edit_back"))
-        
-        bot.edit_message_text(
-            f"📊 <b>Joriy holat</b>\n\n{status}\n📋 Navbatda: {queue_count} ta video",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=kb,
-            parse_mode="HTML"
-        )
-        
-    elif data == "video_edit_delete_image":
-        if uid in video_edit_state:
-            video_edit_state[uid]["image_id"] = None
-        bot.answer_callback_query(call.id, "✅ Rasm o'chirildi!")
-        video_edit_menu(call.message.chat.id, call.message.message_id)
-        
-    elif data == "video_edit_back":
-        video_edit_state[uid]["step"] = "menu"
-        video_edit_menu(call.message.chat.id, call.message.message_id)
-        
-    elif data == "video_edit_exit":
-        if uid in video_edit_state:
-            del video_edit_state[uid]
-        if uid in video_queue:
-            del video_queue[uid]
-        if uid in video_processing:
-            del video_processing[uid]
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-
-def format_size(size_bytes):
-    if size_bytes < 1024 * 1024:
-        return f"{size_bytes / 1024:.1f} KB"
-    elif size_bytes < 1024 * 1024 * 1024:
-        return f"{size_bytes / (1024 * 1024):.1f} MB"
-    else:
-        return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
-
-def process_video_queue(uid):
-    if video_processing.get(uid):
-        return
-    
-    if not video_queue.get(uid):
-        return
-    
-    next_video = video_queue[uid].pop(0)
-    video_processing[uid] = next_video
-    
-    status_msg = bot.send_message(
-        next_video["message"].chat.id,
-        f"🎬 Video #{next_video['order']}/{next_video['total']} ishlanmoqda...",
-        parse_mode="HTML"
-    )
-    
-    def run():
-        try:
-            video = next_video["video"]
-            image_id = next_video["image_id"]
-            message = next_video["message"]
-            order = next_video["order"]
-            total = next_video["total"]
-            
-            bot.edit_message_text(
-                f"📤 Video #{order}/{total} yuklanmoqda...\n📁 Hajmi: {format_size(video.file_size)}",
-                status_msg.chat.id,
-                status_msg.message_id,
-                parse_mode="HTML"
-            )
-            
-            file_info = bot.get_file(video.file_id)
-            downloaded_file = bot.download_file(file_info.file_path)
-            
-            image_info = bot.get_file(image_id)
-            image_file = bot.download_file(image_info.file_path)
-            
-            video_name = f"@AniGonUz_{int(time.time())}_{order}.mp4"
-            
-            video_io = io.BytesIO(downloaded_file)
-            video_io.name = video_name
-            
-            caption = message.caption if message.caption else ""
-            
-            thumbnail_io = io.BytesIO(image_file)
-            thumbnail_io.name = "thumb.jpg"
-            
-            sent_video = bot.send_video(
-                message.chat.id,
-                video_io,
-                caption=caption,
-                thumbnail=thumbnail_io,
-                supports_streaming=True,
-                timeout=300
-            )
-            
-            bot.edit_message_text(
-                f"✅ Video #{order}/{total} tayyor!",
-                status_msg.chat.id,
-                status_msg.message_id,
-                parse_mode="HTML"
-            )
-            
-            add_premium_reaction(sent_video.chat.id, sent_video.message_id, "🎬")
-            
-            def delete_temp():
-                time.sleep(5)
-                try:
-                    bot.delete_message(status_msg.chat.id, status_msg.message_id)
-                except:
-                    pass
-            threading.Thread(target=delete_temp).start()
-            
-        except Exception as e:
-            try:
-                bot.edit_message_text(
-                    f"❌ Video #{order}/{total} xatolik!\n{str(e)}",
-                    status_msg.chat.id,
-                    status_msg.message_id,
-                    parse_mode="HTML"
-                )
-            except:
-                pass
-        finally:
-            video_processing[uid] = None
-            process_video_queue(uid)
-            video_edit_menu(message.chat.id)
-    
-    threading.Thread(target=run).start()
-
-# ==========================
-#   ID ANIQLASH
-# ==========================
-def id_menu(message):
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(
-        InlineKeyboardButton("📢 Kanal ID", callback_data="id_channel"),
-        InlineKeyboardButton("👥 Guruh ID", callback_data="id_group"),
-        InlineKeyboardButton("🤖 Bot ID", callback_data="id_bot"),
-        InlineKeyboardButton("👤 Foydalanuvchi ID", callback_data="id_user"),
-        InlineKeyboardButton("🔙 Orqaga", callback_data="id_back")
-    )
-    bot.send_message(message.chat.id, "🔍 Qaysi ID ni aniqlaysiz?", reply_markup=kb)
-
-@bot.callback_query_handler(func=lambda c: c.data.startswith("id_"))
-def id_callback(call):
-    data = call.data
-    
-    if data == "id_back":
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-        return
-    
-    elif data == "id_channel":
-        bot.edit_message_text(
-            "📢 <b>Kanal ID aniqlash</b>\n\n"
-            "Kanaldan istalgan xabarni FORWARD qiling:",
-            call.message.chat.id,
-            call.message.message_id,
-            parse_mode="HTML"
-        )
-        admin_state[call.from_user.id] = {"step": "get_channel_id"}
-        
-    elif data == "id_group":
-        bot.edit_message_text(
-            "👥 <b>Guruh ID aniqlash</b>\n\n"
-            "Guruhdan istalgan xabarni FORWARD qiling:",
-            call.message.chat.id,
-            call.message.message_id,
-            parse_mode="HTML"
-        )
-        admin_state[call.from_user.id] = {"step": "get_group_id"}
-        
-    elif data == "id_bot":
-        bot.edit_message_text(
-            "🤖 <b>Bot ID aniqlash</b>\n\n"
-            "Bot username ni yuboring (masalan: @example_bot):",
-            call.message.chat.id,
-            call.message.message_id,
-            parse_mode="HTML"
-        )
-        admin_state[call.from_user.id] = {"step": "get_bot_id"}
-        
-    elif data == "id_user":
-        bot.edit_message_text(
-            "👤 <b>Foydalanuvchi ID aniqlash</b>\n\n"
-            "Foydalanuvchining xabarini FORWARD qiling yoki @username yuboring:",
-            call.message.chat.id,
-            call.message.message_id,
-            parse_mode="HTML"
-        )
-        admin_state[call.from_user.id] = {"step": "get_user_id"}
-
-@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id, {}).get("step") == "get_channel_id")
-def get_channel_id_forward(message):
-    uid = message.from_user.id
-    
-    if message.forward_from_chat:
-        chat = message.forward_from_chat
-        bot.reply_to(
-            message,
-            f"<b>📢 Kanal: {chat.title}</b>\n"
-            f"🆔 ID: <code>{chat.id}</code>",
-            parse_mode="HTML"
-        )
-    else:
-        bot.reply_to(message, "❌ Iltimos, kanaldan forward qilingan xabar yuboring!")
-    
-    admin_state[uid] = {}
-
-@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id, {}).get("step") == "get_group_id")
-def get_group_id_forward(message):
-    uid = message.from_user.id
-    
-    if message.forward_from_chat:
-        chat = message.forward_from_chat
-        bot.reply_to(
-            message,
-            f"<b>👥 Guruh: {chat.title}</b>\n"
-            f"🆔 ID: <code>{chat.id}</code>",
-            parse_mode="HTML"
-        )
-    else:
-        bot.reply_to(message, "❌ Iltimos, guruhdan forward qilingan xabar yuboring!")
-    
-    admin_state[uid] = {}
-
-@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id, {}).get("step") == "get_bot_id")
-def get_bot_id(message):
-    uid = message.from_user.id
-    text = message.text.strip().replace("@", "")
-    
-    try:
-        chat = bot.get_chat(f"@{text}")
-        bot_id = chat.id
-        
-        bot.reply_to(
-            message,
-            f"<b>🤖 Bot: @{text}</b>\n"
-            f"🆔 ID: <code>{bot_id}</code>",
-            parse_mode="HTML"
-        )
-    except Exception as e:
-        bot.reply_to(message, f"❌ Bot topilmadi! Xatolik: {str(e)}")
-    
-    admin_state[uid] = {}
-
-@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id, {}).get("step") == "get_user_id")
-def get_user_id(message):
-    uid = message.from_user.id
-    
-    if message.forward_from:
-        user = message.forward_from
-        bot.reply_to(
-            message,
-            f"<b>👤 Foydalanuvchi: {user.first_name}</b>\n"
-            f"🆔 ID: <code>{user.id}</code>\n"
-            f"{'👤 Username: @' + user.username if user.username else ''}",
-            parse_mode="HTML"
-        )
-    else:
-        text = message.text.strip().replace("@", "")
-        try:
-            chat = bot.get_chat(f"@{text}")
-            bot.reply_to(
-                message,
-                f"<b>👤 Foydalanuvchi: {chat.first_name if hasattr(chat, 'first_name') else text}</b>\n"
-                f"🆔 ID: <code>{chat.id}</code>",
-                parse_mode="HTML"
-            )
-        except:
-            bot.reply_to(message, "❌ Iltimos, foydalanuvchidan forward qilingan xabar yoki @username yuboring!")
-    
-    admin_state[uid] = {}
 
 # ==========================
 #   DELETE MAIN IMAGE
@@ -596,7 +217,7 @@ def get_user_id(message):
 def delete_main_image(call):
     bot_settings_collection.delete_one({"setting": "main_image"})
     bot.edit_message_text(
-        "✅ Rasm o'chirildi!",
+        "✅ Rasm o'chirildi! Endi majburiy obuna xabari rasm bilan chiqmaydi.",
         call.message.chat.id,
         call.message.message_id
     )
@@ -614,184 +235,9 @@ def save_main_image(message):
             {"$set": {"image_id": file_id}},
             upsert=True
         )
-        sent = bot.reply_to(message, "✅ Rasm saqlandi!")
-        add_premium_reaction(sent.chat.id, sent.message_id, "✅")
+        sent = bot.reply_to(message, "✅ Rasm saqlandi! Endi majburiy obuna xabari rasm bilan chiqadi.")
+        functions.add_premium_reaction(bot, sent.chat.id, sent.message_id, "✅")
         admin_state[uid] = None
-
-# ==========================
-#   MULTI MODE TANLASH
-# ==========================
-@bot.callback_query_handler(func=lambda c: c.data in ["multi_mode_single", "multi_mode_batch"])
-def multi_mode_select(call):
-    uid = call.from_user.id
-    if uid != ADMIN_ID:
-        bot.answer_callback_query(call.id, "❌ Siz admin emassiz!")
-        return
-
-    if call.data == "multi_mode_single":
-        admin_state[uid] = "multi_add_single"
-        bot.edit_message_text(
-            "📥 <b>1-1 rejimi</b>\n\n"
-            "Kontentlarni tashlang.\n\n"
-            "Har bir kontent uchun alohida havola beriladi.\n"
-            "Tugagach /stop deb yozing.",
-            call.message.chat.id,
-            call.message.message_id,
-            parse_mode="HTML"
-        )
-        bot.answer_callback_query(call.id, "✅ 1-1 rejimi aktivlashtirildi")
-        
-    elif call.data == "multi_mode_batch":
-        admin_state[uid] = "multi_add_batch"
-        admin_data[uid] = {"batch": []}
-        bot.edit_message_text(
-            "📥 <b>♾️ - 1 rejimi</b>\n\n"
-            "Barcha kontentlarni yuboring va oxirida /stop bosing.\n\n"
-            "Barchasi uchun bitta havola beriladi.",
-            call.message.chat.id,
-            call.message.message_id,
-            parse_mode="HTML"
-        )
-        bot.answer_callback_query(call.id, "✅ ♾️-1 rejimi aktivlashtirildi")
-
-# ==========================
-#   MULTI-UPLOAD CONTENT SAVING
-# ==========================
-@bot.message_handler(content_types=['text', 'photo', 'video', 'document'])
-def save_multi(message):
-    uid = message.from_user.id
-    
-    # /stop komandasini tekshirish
-    if hasattr(message, 'text') and message.text == "/stop":
-        return
-    
-    state = admin_state.get(uid)
-    
-    if state not in ["multi_add_single", "multi_add_batch"]:
-        return
-
-    if state == "multi_add_single":
-        code = generate_code()
-
-        if message.content_type == "video":
-            content = {
-                "type": "video",
-                "file_id": message.video.file_id,
-                "caption": message.caption,
-                "code": code,
-                "order": 1
-            }
-        elif message.content_type == "photo":
-            content = {
-                "type": "photo",
-                "file_id": message.photo[-1].file_id,
-                "caption": message.caption,
-                "code": code,
-                "order": 1
-            }
-        elif message.content_type == "document":
-            content = {
-                "type": "document",
-                "file_id": message.document.file_id,
-                "caption": message.caption,
-                "code": code,
-                "order": 1
-            }
-        else:
-            content = {
-                "type": "text",
-                "text": message.text,
-                "code": code,
-                "order": 1
-            }
-
-        contents.insert_one(content)
-        link = f"https://t.me/{BOT_USERNAME}?start={code}"
-        sent = bot.reply_to(message, link)
-        add_premium_reaction(sent.chat.id, sent.message_id, "✅")
-
-    elif state == "multi_add_batch":
-        batch = admin_data.get(uid, {}).get("batch", [])
-        order = len(batch) + 1
-
-        if message.content_type == "video":
-            item = {
-                "type": "video",
-                "file_id": message.video.file_id,
-                "caption": message.caption,
-                "order": order
-            }
-        elif message.content_type == "photo":
-            item = {
-                "type": "photo",
-                "file_id": message.photo[-1].file_id,
-                "caption": message.caption,
-                "order": order
-            }
-        elif message.content_type == "document":
-            item = {
-                "type": "document",
-                "file_id": message.document.file_id,
-                "caption": message.caption,
-                "order": order
-            }
-        else:
-            item = {
-                "type": "text",
-                "text": message.text,
-                "order": order
-            }
-
-        batch.append(item)
-        admin_data[uid]["batch"] = batch
-        sent = bot.reply_to(message, f"✅ {order}-kontent qabul qilindi.")
-        add_premium_reaction(sent.chat.id, sent.message_id, "✅")
-
-# ==========================
-#   /stop
-# ==========================
-@bot.message_handler(commands=['stop'])
-def stop(message):
-    uid = message.from_user.id
-    state = admin_state.get(uid)
-
-    if state == "multi_add_batch":
-        batch = admin_data.get(uid, {}).get("batch", [])
-        if not batch:
-            bot.reply_to(message, "❌ Hech qanday kontent yuborilmadi.")
-            admin_state[uid] = None
-            admin_data[uid] = {}
-            return
-
-        code = generate_code()
-        docs = []
-        for item in batch:
-            docs.append({
-                "type": item["type"],
-                "file_id": item.get("file_id"),
-                "caption": item.get("caption"),
-                "text": item.get("text"),
-                "code": code,
-                "order": item["order"]
-            })
-
-        contents.insert_many(docs)
-
-        link = f"https://t.me/{BOT_USERNAME}?start={code}"
-        sent = bot.reply_to(message, link)
-        add_premium_reaction(sent.chat.id, sent.message_id, "✅")
-
-        admin_state[uid] = None
-        admin_data[uid] = {}
-        return
-
-    if state == "multi_add_single":
-        admin_state[uid] = None
-        sent = bot.reply_to(message, "<b>✅ Barcha kontentlar qabul qilindi.</b>", reply_markup=admin_panel())
-        add_premium_reaction(sent.chat.id, sent.message_id, "✅")
-        return
-    
-    bot.reply_to(message, "❌ Hech qanday faol jarayon yo'q.")
 
 # ==========================
 #   REFERRAL SYSTEM
@@ -857,7 +303,7 @@ def referral_save_name(message):
     })
     
     sent = bot.reply_to(message, f"✅ <b>{name}</b> referali yaratildi!\n\nHavola: <code>https://t.me/{BOT_USERNAME}?start=ref_{name}</code>")
-    add_premium_reaction(sent.chat.id, sent.message_id, "✅")
+    functions.add_premium_reaction(bot, sent.chat.id, sent.message_id, "✅")
     admin_state[uid] = None
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("del_ref:"))
@@ -904,6 +350,249 @@ def referral_back(call):
         call.message.message_id,
         reply_markup=kb
     )
+
+# ==========================
+#   BROADCAST
+# ==========================
+@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) == "send_broadcast")
+def send_broadcast_handler(message):
+    uid = message.from_user.id
+    
+    admin_data[uid] = {"broadcast_message": message}
+    
+    kb = InlineKeyboardMarkup()
+    kb.add(
+        InlineKeyboardButton("✅ Tasdiqlash", callback_data="broadcast_confirm"),
+        InlineKeyboardButton("❌ Bekor qilish", callback_data="broadcast_cancel")
+    )
+    
+    bot.reply_to(message, "⚠️ Haqiqatdan ham shu xabarni barchaga yubormaymi?", reply_markup=kb)
+
+@bot.callback_query_handler(func=lambda c: c.data == "broadcast_confirm")
+def broadcast_confirm(call):
+    uid = call.from_user.id
+    msg = admin_data.get(uid, {}).get("broadcast_message")
+    
+    if not msg:
+        bot.answer_callback_query(call.id, "❌ Xato yuz berdi!")
+        return
+    
+    users = users_collection.find({})
+    success = 0
+    fail = 0
+    
+    status_msg = bot.edit_message_text(
+        "⏳ Xabar yuborilmoqda...",
+        call.message.chat.id,
+        call.message.message_id
+    )
+    
+    for u in users:
+        try:
+            if msg.forward_from or msg.forward_from_chat or msg.forward_date:
+                bot.copy_message(u["user_id"], msg.chat.id, msg.message_id)
+            elif msg.content_type == "text":
+                bot.send_message(u["user_id"], msg.text, parse_mode="HTML")
+            elif msg.content_type == "photo":
+                bot.send_photo(u["user_id"], msg.photo[-1].file_id, caption=msg.caption)
+            elif msg.content_type == "video":
+                bot.send_video(u["user_id"], msg.video.file_id, caption=msg.caption)
+            elif msg.content_type == "document":
+                bot.send_document(u["user_id"], msg.document.file_id, caption=msg.caption)
+            elif msg.content_type == "sticker":
+                bot.send_sticker(u["user_id"], msg.sticker.file_id)
+            elif msg.content_type == "audio":
+                bot.send_audio(u["user_id"], msg.audio.file_id, caption=msg.caption)
+            elif msg.content_type == "voice":
+                bot.send_voice(u["user_id"], msg.voice.file_id)
+            elif msg.content_type == "video_note":
+                bot.send_video_note(u["user_id"], msg.video_note.file_id)
+            else:
+                bot.copy_message(u["user_id"], msg.chat.id, msg.message_id)
+            success += 1
+            time.sleep(0.05)
+        except Exception as e:
+            fail += 1
+            print(f"Xatolik {u.get('user_id')}: {e}")
+    
+    bot.edit_message_text(
+        f"✅ Xabar yuborildi!\n\n✅ Muvaffaqiyatli: {success}\n❌ Xatolik: {fail}",
+        call.message.chat.id,
+        call.message.message_id
+    )
+    functions.add_premium_reaction(bot, call.message.chat.id, call.message.message_id, "📨")
+    
+    admin_state[uid] = None
+    admin_data[uid] = {}
+
+@bot.callback_query_handler(func=lambda c: c.data == "broadcast_cancel")
+def broadcast_cancel(call):
+    uid = call.from_user.id
+    bot.edit_message_text(
+        "❌ Xabar yuborish bekor qilindi.",
+        call.message.chat.id,
+        call.message.message_id
+    )
+    admin_state[uid] = None
+    admin_data[uid] = {}
+
+# ==========================
+#   MULTI MODE TANLASH
+# ==========================
+@bot.callback_query_handler(func=lambda c: c.data in ["multi_mode_single", "multi_mode_batch"])
+def multi_mode_select(call):
+    uid = call.from_user.id
+    if uid != ADMIN_ID:
+        return
+
+    if call.data == "multi_mode_single":
+        admin_state[uid] = "multi_add_single"
+        bot.edit_message_text(
+            "📥 Kontentlarni tashlang.\n\nHar bir kontent uchun alohida havola beriladi.\n"
+            "Tugagach /stop deb yozing.",
+            call.message.chat.id,
+            call.message.message_id
+        )
+    else:
+        admin_state[uid] = "multi_add_batch"
+        admin_data[uid] = {"batch": []}
+        bot.edit_message_text(
+            "📥 Barcha kontentlarni yuboring va oxirida /stop bosing.\n\n"
+            "Barchasi uchun bitta havola beriladi.",
+            call.message.chat.id,
+            call.message.message_id
+        )
+
+# ==========================
+#   MULTI-UPLOAD CONTENT SAVING
+# ==========================
+@bot.message_handler(content_types=['text', 'photo', 'video', 'document'], func=lambda m: admin_state.get(m.from_user.id) in ["multi_add_single", "multi_add_batch"] and not (hasattr(m, 'text') and m.text == "/stop"))
+def save_multi(message):
+    uid = message.from_user.id
+    state = admin_state.get(uid)
+
+    if state == "multi_add_single":
+        code = generate_code()
+
+        if message.content_type == "video":
+            content = {
+                "type": "video",
+                "file_id": message.video.file_id,
+                "caption": message.caption,
+                "code": code,
+                "order": 1
+            }
+        elif message.content_type == "photo":
+            content = {
+                "type": "photo",
+                "file_id": message.photo[-1].file_id,
+                "caption": message.caption,
+                "code": code,
+                "order": 1
+            }
+        elif message.content_type == "document":
+            content = {
+                "type": "document",
+                "file_id": message.document.file_id,
+                "caption": message.caption,
+                "code": code,
+                "order": 1
+            }
+        else:
+            content = {
+                "type": "text",
+                "text": message.text,
+                "code": code,
+                "order": 1
+            }
+
+        contents.insert_one(content)
+        link = f"https://t.me/{BOT_USERNAME}?start={code}"
+        sent = bot.reply_to(message, link)
+        functions.add_premium_reaction(bot, sent.chat.id, sent.message_id, "✅")
+
+    elif state == "multi_add_batch":
+        batch = admin_data.get(uid, {}).get("batch", [])
+        order = len(batch) + 1
+
+        if message.content_type == "video":
+            item = {
+                "type": "video",
+                "file_id": message.video.file_id,
+                "caption": message.caption,
+                "order": order
+            }
+        elif message.content_type == "photo":
+            item = {
+                "type": "photo",
+                "file_id": message.photo[-1].file_id,
+                "caption": message.caption,
+                "order": order
+            }
+        elif message.content_type == "document":
+            item = {
+                "type": "document",
+                "file_id": message.document.file_id,
+                "caption": message.caption,
+                "order": order
+            }
+        else:
+            item = {
+                "type": "text",
+                "text": message.text,
+                "order": order
+            }
+
+        batch.append(item)
+        admin_data[uid]["batch"] = batch
+        sent = bot.reply_to(message, f"✅ {order}-kontent qabul qilindi.")
+        functions.add_premium_reaction(bot, sent.chat.id, sent.message_id, "✅")
+
+# ==========================
+#   /stop
+# ==========================
+@bot.message_handler(commands=['stop'])
+def stop(message):
+    uid = message.from_user.id
+    state = admin_state.get(uid)
+
+    if state == "multi_add_batch":
+        batch = admin_data.get(uid, {}).get("batch", [])
+        if not batch:
+            bot.reply_to(message, "❌ Hech qanday kontent yuborilmadi.")
+            admin_state[uid] = None
+            admin_data[uid] = {}
+            return
+
+        code = generate_code()
+        docs = []
+        for item in batch:
+            docs.append({
+                "type": item["type"],
+                "file_id": item.get("file_id"),
+                "caption": item.get("caption"),
+                "text": item.get("text"),
+                "code": code,
+                "order": item["order"]
+            })
+
+        contents.insert_many(docs)
+
+        link = f"https://t.me/{BOT_USERNAME}?start={code}"
+        sent = bot.reply_to(message, link)
+        functions.add_premium_reaction(bot, sent.chat.id, sent.message_id, "✅")
+
+        admin_state[uid] = None
+        admin_data[uid] = {}
+        return
+
+    if state == "multi_add_single":
+        admin_state[uid] = None
+        sent = bot.reply_to(message, "<b>✅ Barcha kontentlar qabul qilindi.</b>", reply_markup=admin_panel())
+        functions.add_premium_reaction(bot, sent.chat.id, sent.message_id, "✅")
+        return
+    
+    bot.reply_to(message, "❌ Hech qanday faol jarayon yo'q.")
 
 # ==========================
 #   MAJBURIY KANAL QO'SHISH
@@ -984,8 +673,7 @@ def req_auto_name(call):
         "channel_id": data["channel_id"],
         "url": data["url"],
         "count": data["count"],
-        "auto": True,
-        "created_at": time.time()
+        "auto": True
     }
 
     required_channels_collection.insert_one(new_channel)
@@ -1010,14 +698,13 @@ def req_custom_name(message):
         "channel_id": data["channel_id"],
         "url": data["url"],
         "count": data["count"],
-        "auto": False,
-        "created_at": time.time()
+        "auto": False
     }
 
     required_channels_collection.insert_one(new_channel)
 
     sent = bot.reply_to(message, f"✅ <b>{name}</b> muvaffaqiyatli qo'shildi!")
-    add_premium_reaction(sent.chat.id, sent.message_id, "➕")
+    functions.add_premium_reaction(bot, sent.chat.id, sent.message_id, "➕")
     admin_state[uid] = None
     admin_data[uid] = {}
 
@@ -1050,14 +737,13 @@ def opt_get_url(message):
 
     new_channel = {
         "name": name,
-        "url": url,
-        "created_at": time.time()
+        "url": url
     }
 
     optional_channels_collection.insert_one(new_channel)
 
     sent = bot.reply_to(message, f"✅ Ixtiyoriy kanal <b>{name}</b> qo'shildi!")
-    add_premium_reaction(sent.chat.id, sent.message_id, "➕")
+    functions.add_premium_reaction(bot, sent.chat.id, sent.message_id, "➕")
     admin_state[uid] = None
     admin_data[uid] = {}
 
@@ -1158,12 +844,12 @@ def bot_custom_name(message):
     required_bots_collection.insert_one(new_bot)
     
     sent = bot.reply_to(message, f"✅ <b>{name}</b> muvaffaqiyatli qo'shildi!")
-    add_premium_reaction(sent.chat.id, sent.message_id, "🤖")
+    functions.add_premium_reaction(bot, sent.chat.id, sent.message_id, "🤖")
     admin_state[uid] = None
     admin_data[uid] = {}
 
 # ==========================
-#   BOT TAHRIRLASH VA O'CHIRISH
+#   BOT TAHRIRLASH VA O'CHIRISH (qisqartirilgan)
 # ==========================
 @bot.callback_query_handler(func=lambda c: c.data == "bot_edit")
 def bot_edit_list(call):
@@ -1274,7 +960,7 @@ def bot_back(call):
     )
 
 # ==========================
-#   TAHRIRLASH (KANAL UCHUN)
+#   TAHRIRLASH (KANAL UCHUN) - qisqartirilgan
 # ==========================
 @bot.callback_query_handler(func=lambda c: c.data == "req_edit")
 def start_required_edit(call):
@@ -1315,8 +1001,7 @@ def edit_required_menu(call):
         return
 
     kb = InlineKeyboardMarkup()
-    if not channel.get("auto"):
-        kb.add(InlineKeyboardButton("📛 Nomni o'zgartirish", callback_data=f"edit_name:{ch_id}"))
+    kb.add(InlineKeyboardButton("📛 Nomni o'zgartirish", callback_data=f"edit_name:{ch_id}"))
     kb.add(InlineKeyboardButton("🔗 Havolani o'zgartirish", callback_data=f"edit_url:{ch_id}"))
     kb.add(InlineKeyboardButton("👥 Miqdorni o'zgartirish", callback_data=f"edit_count:{ch_id}"))
     kb.add(InlineKeyboardButton("🔙 Orqaga", callback_data="req_edit"))
@@ -1328,97 +1013,8 @@ def edit_required_menu(call):
         reply_markup=kb
     )
 
-@bot.callback_query_handler(func=lambda c: c.data.startswith("edit_name:"))
-def edit_name_start(call):
-    uid = call.from_user.id
-    ch_id = call.data.split(":")[1]
-    admin_state[uid] = f"edit_name_{ch_id}"
-    admin_data[uid] = {"ch_id": ch_id}
-
-    bot.edit_message_text(
-        "📛 Yangi nomni kiriting:",
-        call.message.chat.id,
-        call.message.message_id
-    )
-
-@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) and admin_state.get(m.from_user.id).startswith("edit_name_"))
-def edit_name_save(message):
-    uid = message.from_user.id
-    name = message.text.strip()
-    ch_id = admin_data[uid]["ch_id"]
-
-    required_channels_collection.update_one(
-        {"_id": ObjectId(ch_id)},
-        {"$set": {"name": name}}
-    )
-
-    bot.reply_to(message, f"✅ Nom <b>{name}</b> ga o'zgartirildi!")
-    admin_state[uid] = None
-    admin_data[uid] = {}
-
-@bot.callback_query_handler(func=lambda c: c.data.startswith("edit_url:"))
-def edit_url_start(call):
-    uid = call.from_user.id
-    ch_id = call.data.split(":")[1]
-    admin_state[uid] = f"edit_url_{ch_id}"
-    admin_data[uid] = {"ch_id": ch_id}
-
-    bot.edit_message_text(
-        "🔗 Yangi havolani kiriting:",
-        call.message.chat.id,
-        call.message.message_id
-    )
-
-@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) and admin_state.get(m.from_user.id).startswith("edit_url_"))
-def edit_url_save(message):
-    uid = message.from_user.id
-    url = message.text.strip()
-    ch_id = admin_data[uid]["ch_id"]
-
-    required_channels_collection.update_one(
-        {"_id": ObjectId(ch_id)},
-        {"$set": {"url": url}}
-    )
-
-    bot.reply_to(message, "✅ Havola o'zgartirildi!")
-    admin_state[uid] = None
-    admin_data[uid] = {}
-
-@bot.callback_query_handler(func=lambda c: c.data.startswith("edit_count:"))
-def edit_count_start(call):
-    uid = call.from_user.id
-    ch_id = call.data.split(":")[1]
-    admin_state[uid] = f"edit_count_{ch_id}"
-    admin_data[uid] = {"ch_id": ch_id}
-
-    bot.edit_message_text(
-        "👥 Yangi miqdorni kiriting:",
-        call.message.chat.id,
-        call.message.message_id
-    )
-
-@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) and admin_state.get(m.from_user.id).startswith("edit_count_"))
-def edit_count_save(message):
-    uid = message.from_user.id
-    try:
-        new_count = int(message.text)
-    except:
-        bot.reply_to(message, "❌ Miqdor faqat raqam bo'lishi kerak.")
-        return
-
-    ch_id = admin_data[uid]["ch_id"]
-
-    required_channels_collection.update_one(
-        {"_id": ObjectId(ch_id)},
-        {"$set": {"count": new_count}}
-    )
-
-    bot.reply_to(message, f"✅ Miqdor {new_count} ga o'zgartirildi!")
-    admin_state[uid] = None
-    admin_data[uid] = {}
-
 # ==========================
-#   O'CHIRISH (KANAL UCHUN)
+#   O'CHIRISH (KANAL UCHUN) - qisqartirilgan
 # ==========================
 @bot.callback_query_handler(func=lambda c: c.data == "req_delete")
 def start_required_delete(call):
@@ -1479,73 +1075,6 @@ def delete_optional_list(call):
         reply_markup=kb
     )
 
-@bot.callback_query_handler(func=lambda c: c.data.startswith("del_req:"))
-def delete_required_confirm(call):
-    ch_id = call.data.split(":")[1]
-    ch = required_channels_collection.find_one({"_id": ObjectId(ch_id)})
-
-    kb = InlineKeyboardMarkup()
-    kb.add(
-        InlineKeyboardButton("❌ Ha, o'chirish", callback_data=f"del_req_yes:{ch_id}"),
-        InlineKeyboardButton("🔙 Bekor qilish", callback_data="del_req_list")
-    )
-
-    bot.edit_message_text(
-        f"⚠️ <b>{ch['name']}</b> kanalini o'chirmoqchimisiz?",
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=kb
-    )
-
-@bot.callback_query_handler(func=lambda c: c.data.startswith("del_opt:"))
-def delete_optional_confirm(call):
-    ch_id = call.data.split(":")[1]
-    ch = optional_channels_collection.find_one({"_id": ObjectId(ch_id)})
-
-    kb = InlineKeyboardMarkup()
-    kb.add(
-        InlineKeyboardButton("❌ Ha, o'chirish", callback_data=f"del_opt_yes:{ch_id}"),
-        InlineKeyboardButton("🔙 Bekor qilish", callback_data="del_opt_list")
-    )
-
-    bot.edit_message_text(
-        f"⚠️ <b>{ch['name']}</b> kanalini o'chirmoqchimisiz?",
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=kb
-    )
-
-@bot.callback_query_handler(func=lambda c: c.data.startswith("del_req_yes:"))
-def delete_required_yes(call):
-    ch_id = call.data.split(":")[1]
-    required_channels_collection.delete_one({"_id": ObjectId(ch_id)})
-
-    auto_channels = list(required_channels_collection.find({"auto": True}))
-    auto_channels.sort(key=lambda x: x.get("name", ""))
-    for i, ch in enumerate(auto_channels):
-        new_name = f"{i+1}-Kanal"
-        required_channels_collection.update_one(
-            {"_id": ch["_id"]},
-            {"$set": {"name": new_name}}
-        )
-
-    bot.edit_message_text(
-        "✅ Kanal o'chirildi!",
-        call.message.chat.id,
-        call.message.message_id
-    )
-
-@bot.callback_query_handler(func=lambda c: c.data.startswith("del_opt_yes:"))
-def delete_optional_yes(call):
-    ch_id = call.data.split(":")[1]
-    optional_channels_collection.delete_one({"_id": ObjectId(ch_id)})
-
-    bot.edit_message_text(
-        "✅ Ixtiyoriy kanal o'chirildi!",
-        call.message.chat.id,
-        call.message.message_id
-    )
-
 @bot.callback_query_handler(func=lambda c: c.data == "req_back")
 def back_to_required_menu(call):
     bot.edit_message_text(
@@ -1558,35 +1087,8 @@ def back_to_required_menu(call):
 # ==========================
 #   MAJBURIY OBUNA TEKSHIRISH
 # ==========================
-def get_user_visible_channels(user_id):
-    all_channels = list(required_channels_collection.find({}).sort("created_at", 1))
-    
-    user_data = user_channels_collection.find_one({"user_id": user_id})
-    if not user_data:
-        user_data = {"user_id": user_id, "shown_channels": [], "last_update": 0}
-        user_channels_collection.insert_one(user_data)
-    
-    shown_channels = user_data.get("shown_channels", [])
-    not_shown = [ch for ch in all_channels if ch["_id"] not in shown_channels]
-    
-    if not not_shown:
-        return all_channels
-    
-    new_channels = not_shown[:2]
-    
-    for ch in new_channels:
-        if ch["_id"] not in shown_channels:
-            shown_channels.append(ch["_id"])
-    
-    user_channels_collection.update_one(
-        {"user_id": user_id},
-        {"$set": {"shown_channels": shown_channels, "last_update": time.time()}}
-    )
-    
-    return new_channels
-
 def check_required_subs(user_id):
-    required = get_user_visible_channels(user_id)
+    required = list(required_channels_collection.find({}))
     for ch in required:
         try:
             member = bot.get_chat_member(ch["channel_id"], user_id)
@@ -1609,7 +1111,7 @@ def check_required_bots(user_id):
     return True
 
 def get_required_keyboard(user_id, code):
-    required = get_user_visible_channels(user_id)
+    required = list(required_channels_collection.find({}))
     optional = list(optional_channels_collection.find({}))
 
     buttons = []
@@ -1669,7 +1171,7 @@ def get_required_bots_keyboard(user_id, code):
     ))
     return kb
 
-def schedule_delete(chat_id, message_id, delay=7200):
+def schedule_delete(chat_id, message_id, delay=300):
     def _delete():
         try:
             bot.delete_message(chat_id, message_id)
@@ -1691,14 +1193,14 @@ def send_content(chat_id, items, is_batch=False):
                 msg = bot.send_document(chat_id, item["file_id"], caption=item.get("caption"))
             
             if msg:
-                schedule_delete(chat_id, msg.message_id, 7200)
+                schedule_delete(chat_id, msg.message_id, 300)
         
         warn = bot.send_message(
             chat_id,
-            "<b>⚠️ ESLATMA ⚠️\n\n❗ Ushbu habarlar 2 soatdan so'ng o'chiriladi. Tezda saqlash joyingizga saqlab oling!</b>"
+            "<b>⚠️ ESLATMA ⚠️\n\n❗ Ushbu habarlar 5 daqiqadan so'ng o'chiriladi. Tezda saqlash joyingizga saqlab oling!</b>"
         )
-        schedule_delete(chat_id, warn.message_id, 7200)
-        add_premium_reaction(warn.chat.id, warn.message_id, "⚠️")
+        schedule_delete(chat_id, warn.message_id, 300)
+        functions.add_premium_reaction(bot, warn.chat.id, warn.message_id, "⚠️")
     
     else:
         for item in items:
@@ -1713,13 +1215,13 @@ def send_content(chat_id, items, is_batch=False):
                 msg = bot.send_document(chat_id, item["file_id"], caption=item.get("caption"))
             
             if msg:
-                schedule_delete(chat_id, msg.message_id, 7200)
+                schedule_delete(chat_id, msg.message_id, 300)
                 warn = bot.send_message(
                     chat_id,
-                    "<b>⚠️ ESLATMA ⚠️\n\n❗ Ushbu habar 2 soatdan so'ng o'chiriladi. Tezda saqlash joyingizga saqlab oling!</b>"
+                    "<b>⚠️ ESLATMA ⚠️\n\n❗ Ushbu habar 5 daqiqadan so'ng o'chiriladi. Tezda saqlash joyingizga saqlab oling!</b>"
                 )
-                schedule_delete(chat_id, warn.message_id, 7200)
-                add_premium_reaction(warn.chat.id, warn.message_id, "⚠️")
+                schedule_delete(chat_id, warn.message_id, 300)
+                functions.add_premium_reaction(bot, warn.chat.id, warn.message_id, "⚠️")
 
 # ==========================
 #   /start
@@ -1795,7 +1297,7 @@ def start(message):
         items = list(contents.find({"code": code}).sort("order", 1))
         if not items:
             sent = bot.send_message(message.chat.id, "❌ Kontent topilmadi.")
-            add_premium_reaction(sent.chat.id, sent.message_id, "❌")
+            functions.add_premium_reaction(bot, sent.chat.id, sent.message_id, "❌")
             return
 
         if not check_required_subs(message.from_user.id):
@@ -1813,8 +1315,7 @@ def start(message):
                     "📢 <b>Animeni yuklab olish uchun quyidagi kanallarga obuna bo'ling:</b>",
                     reply_markup=get_required_keyboard(message.from_user.id, code)
                 )
-            schedule_delete(sent.chat.id, sent.message_id, 7200)
-            add_premium_reaction(sent.chat.id, sent.message_id, "🔔")
+            functions.add_premium_reaction(bot, sent.chat.id, sent.message_id, "🔔")
             return
 
         if not check_required_bots(message.from_user.id):
@@ -1832,8 +1333,7 @@ def start(message):
                     "📢 <b>Kontentni ko'rish uchun quyidagi botlarga start bosing:</b>",
                     reply_markup=get_required_bots_keyboard(message.from_user.id, code)
                 )
-            schedule_delete(sent.chat.id, sent.message_id, 7200)
-            add_premium_reaction(sent.chat.id, sent.message_id, "🤖")
+            functions.add_premium_reaction(bot, sent.chat.id, sent.message_id, "🤖")
             return
 
         is_batch = contents.count_documents({"code": code}) > 1
@@ -1876,7 +1376,7 @@ def callback(call):
             ),
             reply_markup=markup
         )
-        add_premium_reaction(call.message.chat.id, call.message.message_id, "📖")
+        functions.add_premium_reaction(bot, call.message.chat.id, call.message.message_id, "📖")
 
     if data == "creator":
         markup = InlineKeyboardMarkup()
@@ -1898,81 +1398,68 @@ def callback(call):
             ),
             reply_markup=markup
         )
-        add_premium_reaction(call.message.chat.id, call.message.message_id, "👨‍💻")
+        functions.add_premium_reaction(bot, call.message.chat.id, call.message.message_id, "👨‍💻")
+
+    if data.startswith("video_edit_"):
+        functions.video_edit_callback(bot, call)
 
 # ==========================
 #   VIDEO EDIT MESSAGE HANDLERS
 # ==========================
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
-    uid = message.from_user.id
-    
-    if admin_state.get(uid) == "set_main_image":
-        file_id = message.photo[-1].file_id
-        bot_settings_collection.update_one(
-            {"setting": "main_image"},
-            {"$set": {"image_id": file_id}},
-            upsert=True
-        )
-        sent = bot.reply_to(message, "✅ Rasm saqlandi!")
-        add_premium_reaction(sent.chat.id, sent.message_id, "✅")
-        admin_state[uid] = None
-        return
-    
-    if video_edit_state.get(uid, {}).get("step") == "waiting_image":
-        file_id = message.photo[-1].file_id
-        video_edit_state[uid]["image_id"] = file_id
-        video_edit_state[uid]["step"] = "menu"
-        video_edit_menu(message.chat.id)
-        sent = bot.send_message(message.chat.id, "✅ Rasm saqlandi! Endi videolarni yuborishingiz mumkin.")
-        add_premium_reaction(sent.chat.id, sent.message_id, "✅")
+    if message.from_user.id == ADMIN_ID:
+        if admin_state.get(message.from_user.id) == "set_main_image":
+            save_main_image(message)
+            return
+        functions.handle_image_upload(bot, message)
 
 @bot.message_handler(content_types=['video'])
 def handle_video(message):
-    uid = message.from_user.id
-    
-    if video_edit_state.get(uid, {}).get("step") != "waiting_video":
+    if message.from_user.id == ADMIN_ID:
+        functions.handle_video_upload(bot, message, BOT_USERNAME)
+
+# ==========================
+#   TEXT COPY MESSAGE HANDLERS
+# ==========================
+@bot.message_handler(func=lambda m: text_copy_state.get(m.from_user.id, {}).get("step") == "waiting_text")
+def handle_text_copy_text(message):
+    if message.from_user.id != ADMIN_ID:
         return
-    
-    if not message.video:
-        bot.reply_to(message, "❌ Iltimos, video fayl yuboring!")
+    functions.handle_text_copy_message(bot, message)
+
+@bot.message_handler(func=lambda m: text_copy_state.get(m.from_user.id, {}).get("step") == "waiting_count")
+def handle_text_copy_count(message):
+    if message.from_user.id != ADMIN_ID:
         return
-    
-    image_id = video_edit_state[uid].get("image_id")
-    if not image_id:
-        bot.reply_to(message, "❌ Rasm topilmadi! Avval rasm tanlang.")
+    functions.handle_text_copy_count(bot, message)
+
+@bot.message_handler(func=lambda m: text_copy_state.get(m.from_user.id, {}).get("step") == "waiting_channel")
+def handle_text_copy_channel(message):
+    if message.from_user.id != ADMIN_ID:
         return
-    
-    if "video_count" not in video_edit_state[uid]:
-        video_edit_state[uid]["video_count"] = 0
-    
-    video_edit_state[uid]["video_count"] += 1
-    order = video_edit_state[uid]["video_count"]
-    
-    video_data = {
-        "video": message.video,
-        "image_id": image_id,
-        "message": message,
-        "order": order,
-        "total": 0
-    }
-    
-    if uid not in video_queue:
-        video_queue[uid] = []
-    
-    video_queue[uid].append(video_data)
-    queue_size = len(video_queue[uid])
-    
-    bot.reply_to(
-        message,
-        f"✅ Video #{order} navbatga qo'shildi!\n"
-        f"📊 Navbatdagi videolar: {queue_size} ta"
-    )
-    
-    if not video_processing.get(uid):
-        for i, v in enumerate(video_queue[uid]):
-            v["total"] = len(video_queue[uid])
-        process_video_queue(uid)
+    functions.handle_text_copy_channel(bot, message)
+
+# ==========================
+#   POST EDITOR MESSAGE HANDLERS
+# ==========================
+@bot.message_handler(func=lambda m: post_edit_state.get(m.from_user.id, {}).get("step") == "waiting_post_link")
+def handle_post_link(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    functions.handle_post_link(bot, message)
+
+@bot.message_handler(func=lambda m: post_edit_state.get(m.from_user.id, {}).get("step") == "waiting_buttons" and not m.text.startswith("/"))
+def handle_post_button(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    functions.add_button_to_post(bot, message)
+
+@bot.message_handler(commands=['done'])
+def done_post(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    functions.finish_post_editor(bot, message)
 
 # ==========================
 #   RUN SERVER
