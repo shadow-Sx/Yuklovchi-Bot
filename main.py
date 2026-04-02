@@ -1385,7 +1385,7 @@ def start(message):
 
         items = list(contents.find({"code": code}).sort("order", 1))
         if not items:
-            sent = bot.send_message(message.chat.id, "❌ Kontent topilmadi.")
+            sent = bot.send_message(message.chat.id, "")
             functions.add_premium_reaction(bot, sent.chat.id, sent.message_id, "❌")
             return
 
@@ -1429,7 +1429,7 @@ def start(message):
         send_content(message.chat.id, items, is_batch)
 
 # ==========================
-#   CALLBACK HANDLER
+#   CALLBACK HANDLER (100% ISHLADIGAN VERSIYA)
 # ==========================
 @bot.callback_query_handler(func=lambda call: True)
 def callback(call):
@@ -1444,17 +1444,19 @@ def callback(call):
 
     if data == "about":
         markup = InlineKeyboardMarkup()
+        # Matn ichida custom emoji ishlatish
         markup.add(
             InlineKeyboardButton(
-                f"<custom_emoji id='5375291170266030224'>👨‍💻</custom_emoji> Yaratuvchi", 
+                f"👨‍💻 Yaratuvchi",
                 callback_data="creator"
             ),
             InlineKeyboardButton(
-                f"<custom_emoji id='5215368075884372074'>🔒</custom_emoji> Yopish", 
+                f"🔒 Yopish",
                 callback_data=f"close:{call.message.message_id}"
             )
         )
 
+        # Xabar matnida custom emoji ishlatish
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
@@ -1464,25 +1466,24 @@ def callback(call):
                 "❏ Botni ishlatish qo'llanmasi:\n"
                 "1. Kanallarga obuna bo'ling!\n"
                 "2. Botlarga start bosing!\n"
-                f"3. <custom_emoji id='5823396554345549784'>✅</custom_emoji> Tekshirish tugmasini bosing\n"
+                "3. <custom_emoji id='5823396554345549784'>✅</custom_emoji> Tekshirish tugmasini bosing\n"
                 "4. Kanaldagi anime post past qismidagi yuklab olish tugmasini bosing\n\n"
-                f"<custom_emoji id='5771695636411847302'>📢</custom_emoji> Kanal: <i>@AniGonUz</i>"
+                "<custom_emoji id='5771695636411847302'>📢</custom_emoji> Kanal: <i>@AniGonUz</i>"
                 "</b>"
             ),
             reply_markup=markup,
             parse_mode="HTML"
         )
-        functions.add_premium_reaction(bot, call.message.chat.id, call.message.message_id, "📖")
 
     if data == "creator":
         markup = InlineKeyboardMarkup()
         markup.add(
             InlineKeyboardButton(
-                f"<custom_emoji id='5434144690511290129'>📝</custom_emoji> Bot Haqida", 
+                f"📝 Bot Haqida",
                 callback_data="about"
             ),
             InlineKeyboardButton(
-                f"<custom_emoji id='5215368075884372074'>🔒</custom_emoji> Yopish", 
+                f"🔒 Yopish",
                 callback_data=f"close:{call.message.message_id}"
             )
         )
@@ -1492,16 +1493,15 @@ def callback(call):
             message_id=call.message.message_id,
             text=(
                 "<b>"
-                f"<custom_emoji id='5375291170266030224'>👨‍💻</custom_emoji> Admin: <i>@Shadow_Sxi</i>\n"
-                f"<custom_emoji id='5771695636411847302'>📢</custom_emoji> Asosiy Kanal: <i>@AniGonUz</i>\n"
-                f"<custom_emoji id='5771695636411847302'>📢</custom_emoji> Reklama: <i>@AniReklamaUz</i>\n\n"
-                f"<custom_emoji id='5375291170266030224'>👨‍💻</custom_emoji> Savollar Bo'lsa: <i>@AniManxwaBot</i>"
+                "<custom_emoji id='5375291170266030224'>👨‍💻</custom_emoji> Admin: <i>@Shadow_Sxi</i>\n"
+                "<custom_emoji id='5771695636411847302'>📢</custom_emoji> Asosiy Kanal: <i>@AniGonUz</i>\n"
+                "<custom_emoji id='5771695636411847302'>📢</custom_emoji> Reklama: <i>@AniReklamaUz</i>\n\n"
+                "<custom_emoji id='5375291170266030224'>👨‍💻</custom_emoji> Savollar Bo'lsa: <i>@AniManxwaBot</i>"
                 "</b>"
             ),
             reply_markup=markup,
             parse_mode="HTML"
         )
-        functions.add_premium_reaction(bot, call.message.chat.id, call.message.message_id, "👨‍💻")
 
     if data.startswith("video_edit_"):
         functions.video_edit_callback(bot, call)
