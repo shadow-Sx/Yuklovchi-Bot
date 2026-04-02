@@ -84,7 +84,7 @@ admin_state = {}
 admin_data = {}
 
 # ==========================
-#   ADMIN PANEL (Keraksiz tugmalar olib tashlandi)
+#   ADMIN PANEL
 # ==========================
 def admin_panel():
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
@@ -496,8 +496,7 @@ def multi_mode_select(call):
     if call.data == "multi_mode_single":
         admin_state[uid] = "multi_add_single"
         bot.edit_message_text(
-            "📥 Kontentlarni tashlang.\n\nHar bir kontent uchun alohida havola beriladi.\n"
-            "Tugagach /stop deb yozing.",
+            "📥 1-1 rejimi: Kontentlarni tashlang. Har bir kontent uchun alohida havola.\nTugagach /stop yozing.",
             call.message.chat.id,
             call.message.message_id
         )
@@ -505,19 +504,73 @@ def multi_mode_select(call):
         admin_state[uid] = "multi_add_batch"
         admin_data[uid] = {"batch": []}
         bot.edit_message_text(
-            "📥 Barcha kontentlarni yuboring va oxirida /stop bosing.\n\n"
-            "Barchasi uchun bitta havola beriladi.",
+            "📥 ♾️-1 rejimi: Barcha kontentlarni yuboring, tugagach /stop bosing.\nBarchasi uchun bitta havola.",
             call.message.chat.id,
             call.message.message_id
         )
 
 # ==========================
-#   MULTI-UPLOAD CONTENT SAVING
+#   /stop (BIRINCHI HANDLER - MUHIM!)
 # ==========================
-@bot.message_handler(content_types=['text', 'photo', 'video', 'document'], func=lambda m: admin_state.get(m.from_user.id) in ["multi_add_single", "multi_add_batch"] and not (hasattr(m, 'text') and m.text == "/stop"))
-def save_multi(message):
+@bot.message_handler(commands=['stop'])
+def stop_command(message):
     uid = message.from_user.id
     state = admin_state.get(uid)
+    
+    print(f"STOP komandasi: uid={uid}, state={state}")  # Debug
+
+    if state == "multi_add_batch":
+        batch = admin_data.get(uid, {}).get("batch", [])
+        if not batch:
+            bot.reply_to(message, "❌ Hech qanday kontent yuborilmadi.")
+            admin_state[uid] = None
+            admin_data[uid] = {}
+            return
+
+        code = generate_code()
+        docs = []
+        for item in batch:
+            docs.append({
+                "type": item["type"],
+                "file_id": item.get("file_id"),
+                "caption": item.get("caption"),
+                "text": item.get("text"),
+                "code": code,
+                "order": item["order"]
+            })
+
+        contents.insert_many(docs)
+        link = f"https://t.me/{BOT_USERNAME}?start={code}"
+        sent = bot.reply_to(message, link)
+        functions.add_premium_reaction(bot, sent.chat.id, sent.message_id, "✅")
+
+        admin_state[uid] = None
+        admin_data[uid] = {}
+        return
+
+    if state == "multi_add_single":
+        admin_state[uid] = None
+        sent = bot.reply_to(message, "<b>✅ Barcha kontentlar qabul qilindi.</b>", reply_markup=admin_panel())
+        functions.add_premium_reaction(bot, sent.chat.id, sent.message_id, "✅")
+        return
+    
+    bot.reply_to(message, "❌ Hech qanday faol jarayon yo'q. /admin -> Cantent Qo'shish tugmasini bosing.")
+
+# ==========================
+#   MULTI-UPLOAD CONTENT SAVING
+# ==========================
+@bot.message_handler(content_types=['text', 'photo', 'video', 'document'])
+def save_multi(message):
+    uid = message.from_user.id
+    
+    # /stop ni o'tkazib yuborish
+    if message.text and message.text.strip() == "/stop":
+        return
+    
+    state = admin_state.get(uid)
+    
+    if state not in ["multi_add_single", "multi_add_batch"]:
+        return
 
     if state == "multi_add_single":
         code = generate_code()
@@ -593,54 +646,8 @@ def save_multi(message):
 
         batch.append(item)
         admin_data[uid]["batch"] = batch
-        sent = bot.reply_to(message, f"✅ {order}-kontent qabul qilindi.")
+        sent = bot.reply_to(message, f"✅ {order}-kontent qabul qilindi. /stop bilan tugating.")
         functions.add_premium_reaction(bot, sent.chat.id, sent.message_id, "✅")
-
-# ==========================
-#   /stop
-# ==========================
-@bot.message_handler(commands=['stop'])
-def stop(message):
-    uid = message.from_user.id
-    state = admin_state.get(uid)
-
-    if state == "multi_add_batch":
-        batch = admin_data.get(uid, {}).get("batch", [])
-        if not batch:
-            bot.reply_to(message, "❌ Hech qanday kontent yuborilmadi.")
-            admin_state[uid] = None
-            admin_data[uid] = {}
-            return
-
-        code = generate_code()
-        docs = []
-        for item in batch:
-            docs.append({
-                "type": item["type"],
-                "file_id": item.get("file_id"),
-                "caption": item.get("caption"),
-                "text": item.get("text"),
-                "code": code,
-                "order": item["order"]
-            })
-
-        contents.insert_many(docs)
-
-        link = f"https://t.me/{BOT_USERNAME}?start={code}"
-        sent = bot.reply_to(message, link)
-        functions.add_premium_reaction(bot, sent.chat.id, sent.message_id, "✅")
-
-        admin_state[uid] = None
-        admin_data[uid] = {}
-        return
-
-    if state == "multi_add_single":
-        admin_state[uid] = None
-        sent = bot.reply_to(message, "<b>✅ Barcha kontentlar qabul qilindi.</b>", reply_markup=admin_panel())
-        functions.add_premium_reaction(bot, sent.chat.id, sent.message_id, "✅")
-        return
-    
-    bot.reply_to(message, "❌ Hech qanday faol jarayon yo'q.")
 
 # ==========================
 #   MAJBURIY KANAL QO'SHISH
@@ -1340,7 +1347,7 @@ def get_required_keyboard(user_id, code):
 
     kb.add(
         InlineKeyboardButton(
-            "✔️ Tekshirish",
+            "Tekshirish ♻️",
             url=f"https://t.me/{BOT_USERNAME}?start={code}"
         )
     )
@@ -1370,7 +1377,7 @@ def get_required_bots_keyboard(user_id, code):
         kb.add(btn)
     
     kb.add(InlineKeyboardButton(
-        "✔️ Tekshirish",
+        "Tekshirish ♻️",
         url=f"https://t.me/{BOT_USERNAME}?start={code}"
     ))
     return kb
@@ -1444,6 +1451,7 @@ def start(message):
         except:
             pass
 
+    # Oddiy start
     if len(message.text.split()) == 1:
         users_collection.update_one(
             {"user_id": message.from_user.id},
@@ -1464,10 +1472,14 @@ def start(message):
             reply_markup=markup
         )
         threading.Thread(target=add_start_reaction, args=(sent,)).start()
+        return
+    
+    # Start bilan code kelgan
+    args = message.text.split()
+    if len(args) > 1:
+        code = args[1]
         
-    else:
-        code = message.text.split()[1]
-        
+        # Referal kodi
         if code.startswith("ref_"):
             ref_name = code.replace("ref_", "")
             referral = referrals_collection.find_one({"name": ref_name})
@@ -1498,12 +1510,14 @@ def start(message):
             threading.Thread(target=add_start_reaction, args=(sent,)).start()
             return
 
+        # Kontent kodini tekshirish
         items = list(contents.find({"code": code}).sort("order", 1))
         if not items:
             sent = bot.send_message(message.chat.id, "❌ Kontent topilmadi.")
             functions.add_premium_reaction(bot, sent.chat.id, sent.message_id, "❌")
             return
 
+        # Majburiy kanallarni tekshirish
         if not check_required_subs(message.from_user.id):
             settings = bot_settings_collection.find_one({"setting": "main_image"})
             if settings and settings.get("image_id"):
@@ -1522,6 +1536,7 @@ def start(message):
             functions.add_premium_reaction(bot, sent.chat.id, sent.message_id, "🔔")
             return
 
+        # Majburiy botlarni tekshirish
         if not check_required_bots(message.from_user.id):
             settings = bot_settings_collection.find_one({"setting": "main_image"})
             if settings and settings.get("image_id"):
@@ -1540,6 +1555,7 @@ def start(message):
             functions.add_premium_reaction(bot, sent.chat.id, sent.message_id, "🤖")
             return
 
+        # Kontentni yuborish
         is_batch = contents.count_documents({"code": code}) > 1
         send_content(message.chat.id, items, is_batch)
 
