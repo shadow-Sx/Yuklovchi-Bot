@@ -6,7 +6,6 @@ import threading
 import requests
 import telebot
 import io
-import math
 from flask import Flask, request
 from telebot.types import (
     ReplyKeyboardMarkup, KeyboardButton,
@@ -14,8 +13,7 @@ from telebot.types import (
 )
 from pymongo import MongoClient
 from bson.objectid import ObjectId
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
-import functools
+from PIL import Image, ImageDraw, ImageFont
 
 # Import functions
 import functions
@@ -46,7 +44,7 @@ referrals_collection = db["referrals"]
 user_referrals_collection = db["user_referrals"]
 bot_settings_collection = db["bot_settings"]
 required_bots_collection = db["required_bots"]
-design_counter = db["design_counter"]  # dizayn raqami uchun
+design_counter = db["design_counter"]
 
 # ==========================
 #   FLASK SERVER
@@ -119,7 +117,7 @@ def required_bots_menu():
     kb.add(InlineKeyboardButton("🗑 O'chirish", callback_data="bot_delete"),
            InlineKeyboardButton("🔙 Orqaga", callback_data="bot_back"))
     return kb
-    
+
 # ==========================
 #   /admin
 # ==========================
@@ -209,7 +207,7 @@ def admin_buttons(message):
         screenshot_state.pop(uid, None)
         bot.send_message(uid, "<b>Admin paneldan chiqdingiz.</b>",
                          reply_markup=telebot.types.ReplyKeyboardRemove())
-        
+
 # ==========================
 #   DELETE MAIN IMAGE
 # ==========================
@@ -549,7 +547,7 @@ def save_multi(message):
     if state == "multi_add_single":
         time.sleep(0.1)
     elif state == "multi_add_batch":
-        time.sleep(0.7)
+        time.sleep(0.8)  # 0.7 dan 0.8 ga o'zgartirildi
     content_type = message.content_type
     item = {"type": content_type, "order": 1}
     if content_type == "video":
@@ -976,7 +974,6 @@ def design_skip_season(message):
         design_state[uid]["step"] = "channel"
         bot.reply_to(message, "📢 Kanal nomini kiriting (masalan: AniGonUz):")
     elif design_state.get(uid, {}).get("step") == "waiting_buttons":
-        # bu boshqa joyda ishlatiladi
         pass
 
 @bot.message_handler(func=lambda m: design_state.get(m.from_user.id, {}).get("step") == "season" and not m.text.startswith("/"))
@@ -1009,15 +1006,12 @@ def design_quality_selected(call):
     uid = call.from_user.id
     quality = "HD" if call.data == "design_hd" else "SD"
     data = design_state[uid]
-    # Rasmni yaratish
     bot.edit_message_text("⏳ Rasm yaratilmoqda...", call.message.chat.id, call.message.message_id)
     try:
         file_info = bot.get_file(data["image_id"])
         downloaded = bot.download_file(file_info.file_path)
         img = Image.open(io.BytesIO(downloaded)).convert("RGB")
-        # Rasm ustiga matn yozish
         draw = ImageDraw.Draw(img)
-        # Font yuklash (agar mavjud bo'lmasa default)
         try:
             font = ImageFont.truetype("arial.ttf", size=40)
             font_small = ImageFont.truetype("arial.ttf", size=30)
@@ -1025,14 +1019,12 @@ def design_quality_selected(call):
             font = ImageFont.load_default()
             font_small = font
         width, height = img.size
-        # Matnlar
         channel = data["channel"].upper()
         anime_name = data["anime_name"]
-        if data["season"]:
+        if data.get("season"):
             season_text = f"{data['season']}-FASL | QISM-{data['episode']}"
         else:
             season_text = f"QISM-{data['episode']}"
-        # Oq fonda qora matn (soya bilan)
         def draw_text_with_outline(draw, text, position, font, text_color, outline_color, outline_width=2):
             x, y = position
             for dx in range(-outline_width, outline_width+1):
@@ -1040,29 +1032,21 @@ def design_quality_selected(call):
                     if dx != 0 or dy != 0:
                         draw.text((x+dx, y+dy), text, font=font, fill=outline_color)
             draw.text((x, y), text, font=font, fill=text_color)
-
-        # Kanal nomi tepada markazda
         bbox = draw.textbbox((0,0), channel, font=font)
         text_width = bbox[2] - bbox[0]
         x = (width - text_width) // 2
         y = 50
         draw_text_with_outline(draw, channel, (x, y), font, "white", "black")
-
-        # Fasl/qism
         bbox2 = draw.textbbox((0,0), season_text, font=font_small)
         tw2 = bbox2[2] - bbox2[0]
         x2 = (width - tw2) // 2
         y2 = height - 150
         draw_text_with_outline(draw, season_text, (x2, y2), font_small, "white", "black")
-
-        # Anime nomi
         bbox3 = draw.textbbox((0,0), anime_name, font=font)
         tw3 = bbox3[2] - bbox3[0]
         x3 = (width - tw3) // 2
         y3 = height - 80
         draw_text_with_outline(draw, anime_name, (x3, y3), font, "white", "black")
-
-        # Sifat sozlamalari
         if quality == "HD":
             output = io.BytesIO()
             img.save(output, format="JPEG", quality=95)
@@ -1070,8 +1054,6 @@ def design_quality_selected(call):
             output = io.BytesIO()
             img.save(output, format="JPEG", quality=70)
         output.seek(0)
-
-        # Sanoq raqamini olish va oshirish
         counter = design_counter.find_one_and_update(
             {"_id": "design"},
             {"$inc": {"seq": 1}},
@@ -1080,11 +1062,8 @@ def design_quality_selected(call):
         )
         seq = counter["seq"] if counter else 1
         filename = f"{BOT_USERNAME}-{seq}.jpg"
-
-        # Fayl sifatida yuborish
         bot.send_document(call.message.chat.id, output, visible_file_name=filename,
                           caption=f"✅ Dizayn tayyor!\nFormat: {quality}")
-
         bot.edit_message_text("✅ Dizayn yaratildi!", call.message.chat.id, call.message.message_id)
         functions.add_premium_reaction(bot, call.message.chat.id, call.message.message_id, "🎨")
         design_state.pop(uid, None)
@@ -1092,7 +1071,7 @@ def design_quality_selected(call):
         bot.edit_message_text(f"❌ Xatolik: {e}", call.message.chat.id, call.message.message_id)
 
 # ==========================
-#   SKRINSHOT
+#   SKRINSHOT (oddiy)
 # ==========================
 @bot.message_handler(content_types=['video', 'document'],
                     func=lambda m: screenshot_state.get(m.from_user.id, {}).get("step") == "waiting_video")
@@ -1110,54 +1089,16 @@ def screenshot_receive_video(message):
     if not file_id:
         bot.reply_to(message, "❌ Video topilmadi!")
         return
-
     status = bot.reply_to(message, "⏳ Video tahlil qilinmoqda va skrinshotlar olinmoqda...")
     try:
-        # Afsuski, oddiy kutubxonalar bilan skrinshot olish qiyin.
-        # Bu funksiya serverda ffmpeg yoki opencv o'rnatilgan bo'lsa ishlaydi.
-        # Hozircha soddalashtirilgan xabar:
         bot.edit_message_text(
             "📸 Skrinshot funksiyasi hozircha faqat serverda ffmpeg mavjud bo'lganda ishlaydi.\n"
             "Iltimos, keyinroq tekshiring yoki qo'lda skrinshot oling.",
             status.chat.id, status.message_id
         )
-        # Agar opencv o'rnatilgan bo'lsa, skrinshot olish kodi:
-        ""
-        import cv2
-        import tempfile
-        file_info = bot.get_file(file_id)
-        downloaded = bot.download_file(file_info.file_path)
-        with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp:
-            tmp.write(downloaded)
-            tmp_path = tmp.name
-        cap = cv2.VideoCapture(tmp_path)
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        duration = total_frames / fps if fps > 0 else 0
-        # 10 ta teng oraliqda skrinshot olish
-        screenshots = []
-        for i in range(1, 11):
-            frame_pos = int(total_frames * i / 11)
-            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_pos)
-            ret, frame = cap.read()
-            if ret:
-                _, buffer = cv2.imencode('.jpg', frame)
-                io_buf = io.BytesIO(buffer)
-                io_buf.name = f"scr_{i}.jpg"
-                screenshots.append(io_buf)
-        cap.release()
-        os.unlink(tmp_path)
-        # skrinshotlarni yuborish
-        for scr in screenshots:
-            bot.send_photo(message.chat.id, scr)
-        ""
     except Exception as e:
         bot.edit_message_text(f"❌ Xatolik: {e}", status.chat.id, status.message_id)
     screenshot_state.pop(uid, None)
-    
-
-# Bot tahrirlash va o'chirish uchun handlerlar (oldin berilgan kodni ishlating)
-# ...
 
 # ==========================
 #   MAJBURIY OBUNA TEKSHIRISH
@@ -1429,7 +1370,7 @@ def callback(call):
         functions.video_edit_callback(bot, call)
 
 # ==========================
-#   MESSAGE HANDLERS (functions ga yuboriladi)
+#   MESSAGE HANDLERS
 # ==========================
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
