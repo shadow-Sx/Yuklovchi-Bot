@@ -150,7 +150,7 @@ def add_button_to_post(bot, message):
     )
     return True
 
-def edit_message_reply_markup(bot, message):
+def finish_post_editor(bot, message):
     """Postni tugmalar bilan qayta yuborish"""
     uid = message.from_user.id
     if uid not in post_edit_state:
