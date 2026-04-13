@@ -150,7 +150,7 @@ def add_button_to_post(bot, message):
     )
     return True
 
-def finish_post_editor(bot, message):
+def edit_message_reply_markup(bot, message):
     """Postni tugmalar bilan qayta yuborish"""
     uid = message.from_user.id
     if uid not in post_edit_state:
@@ -699,7 +699,7 @@ def handle_text_copy_channel(bot, message):
                 except:
                     pass
             
-            time.sleep(0.7)
+            time.sleep(0.8)
             
         except Exception as e:
             fail += 1
