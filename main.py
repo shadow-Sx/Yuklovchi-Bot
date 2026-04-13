@@ -5,6 +5,8 @@ import string
 import threading
 import requests
 import telebot
+import io
+import math
 from flask import Flask, request
 from telebot.types import (
     ReplyKeyboardMarkup, KeyboardButton,
@@ -12,7 +14,10 @@ from telebot.types import (
 )
 from pymongo import MongoClient
 from bson.objectid import ObjectId
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
+import functools
 
+# Import functions
 import functions
 from functions import video_edit_state, text_copy_state, post_edit_state
 
@@ -41,6 +46,7 @@ referrals_collection = db["referrals"]
 user_referrals_collection = db["user_referrals"]
 bot_settings_collection = db["bot_settings"]
 required_bots_collection = db["required_bots"]
+design_counter = db["design_counter"]  # dizayn raqami uchun
 
 # ==========================
 #   FLASK SERVER
@@ -74,6 +80,9 @@ def generate_code(length=12):
 admin_state = {}
 admin_data = {}
 add_button_state = {}
+design_state = {}
+screenshot_state = {}
+broadcast_state = {}
 
 # ==========================
 #   ADMIN PANEL
@@ -89,7 +98,8 @@ def second_menu():
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
     markup.row(KeyboardButton("Referal"), KeyboardButton("Text Copy"))
     markup.row(KeyboardButton("Post Tayyorla"), KeyboardButton("Video Edit"))
-    markup.row(KeyboardButton("Cantnetga tugma qoshish"), KeyboardButton("1-Bo'lim"))
+    markup.row(KeyboardButton("Cantnetga tugma qoshish"), KeyboardButton("Dizayn Yaratish"))
+    markup.row(KeyboardButton("Skrinshot"), KeyboardButton("1-Bo'lim"))
     return markup
 
 def required_menu():
@@ -109,7 +119,7 @@ def required_bots_menu():
     kb.add(InlineKeyboardButton("🗑 O'chirish", callback_data="bot_delete"),
            InlineKeyboardButton("🔙 Orqaga", callback_data="bot_back"))
     return kb
-
+    
 # ==========================
 #   /admin
 # ==========================
@@ -126,7 +136,7 @@ def admin_start(message):
 @bot.message_handler(func=lambda m: m.from_user.id == ADMIN_ID and m.text in [
     "Cantent Qo'shish", "Majburi Obuna", "Habar Yuborish", "Referal",
     "Rasm Sozlash", "Video Edit", "Text Copy", "Post Tayyorla", "🔙 Chiqish",
-    "2-Bo'lim", "1-Bo'lim", "Cantnetga tugma qoshish"
+    "2-Bo'lim", "1-Bo'lim", "Cantnetga tugma qoshish", "Dizayn Yaratish", "Skrinshot"
 ])
 def admin_buttons(message):
     uid = message.from_user.id
@@ -140,8 +150,11 @@ def admin_buttons(message):
         bot.reply_to(message, "Qaysi tarzda kontent qo'shmoqchisiz?", reply_markup=kb)
 
     elif text == "Habar Yuborish":
-        admin_state[uid] = "send_broadcast"
-        bot.reply_to(message, "📨 Xabar yuboring (forward qilingan xabar ham bo'lishi mumkin):")
+        broadcast_state[uid] = {"step": "choose_mode"}
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton("Forward", callback_data="broadcast_forward"),
+               InlineKeyboardButton("Oddiy", callback_data="broadcast_normal"))
+        bot.reply_to(message, "Qaysi tarzda foydalanuvchilarga habar yubormoqchisiz?", reply_markup=kb)
 
     elif text == "Majburi Obuna":
         bot.send_message(uid, "📌 Majburiy obuna bo'limi:", reply_markup=required_menu())
@@ -179,13 +192,24 @@ def admin_buttons(message):
             "📎 Iltimos, kontent havolasini yoki start kodini yuboring:\n\n"
             f"Masalan: <code>https://t.me/{BOT_USERNAME}?start=abc123</code>\nyoki <code>abc123</code>")
 
+    elif text == "Dizayn Yaratish":
+        design_state[uid] = {"step": "anime_name"}
+        bot.reply_to(message, "🎨 Anime nomini yuboring:")
+
+    elif text == "Skrinshot":
+        screenshot_state[uid] = {"step": "waiting_video"}
+        bot.reply_to(message, "📸 Video yoki faylni yuboring (maks 10 ta skrinshot olinadi).")
+
     elif text == "🔙 Chiqish":
         admin_state.pop(uid, None)
         admin_data.pop(uid, None)
         add_button_state.pop(uid, None)
+        broadcast_state.pop(uid, None)
+        design_state.pop(uid, None)
+        screenshot_state.pop(uid, None)
         bot.send_message(uid, "<b>Admin paneldan chiqdingiz.</b>",
                          reply_markup=telebot.types.ReplyKeyboardRemove())
-
+        
 # ==========================
 #   DELETE MAIN IMAGE
 # ==========================
@@ -286,24 +310,100 @@ def referral_back(call):
                           call.message.chat.id, call.message.message_id, reply_markup=kb)
 
 # ==========================
-#   BROADCAST
+#   BROADCAST (YANGILANGAN)
 # ==========================
-@bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) == "send_broadcast")
-def send_broadcast_handler(message):
-    uid = message.from_user.id
-    admin_data[uid] = {"broadcast_message": message}
-    kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("✅ Tasdiqlash", callback_data="broadcast_confirm"),
-           InlineKeyboardButton("❌ Bekor qilish", callback_data="broadcast_cancel"))
-    bot.reply_to(message, "⚠️ Haqiqatdan ham shu xabarni barchaga yubormaymi?", reply_markup=kb)
-
-@bot.callback_query_handler(func=lambda c: c.data == "broadcast_confirm")
-def broadcast_confirm(call):
+@bot.callback_query_handler(func=lambda c: c.data in ["broadcast_forward", "broadcast_normal"])
+def broadcast_mode_selected(call):
     uid = call.from_user.id
-    msg = admin_data.get(uid, {}).get("broadcast_message")
-    if not msg:
-        bot.answer_callback_query(call.id, "❌ Xato yuz berdi!")
+    if uid != ADMIN_ID:
         return
+    mode = "forward" if call.data == "broadcast_forward" else "normal"
+    broadcast_state[uid] = {"step": "waiting_message", "mode": mode}
+    if mode == "forward":
+        text = "📨 Forward xabaringizni yuboring (kanaldan forward qilingan bo'lishi mumkin)."
+    else:
+        text = "📝 Yaxshi, habaringizni yuboring (matn, rasm, video, fayl, stiker va boshqalar)."
+    bot.edit_message_text(text, call.message.chat.id, call.message.message_id)
+
+@bot.message_handler(func=lambda m: broadcast_state.get(m.from_user.id, {}).get("step") == "waiting_message")
+def broadcast_receive_message(message):
+    uid = message.from_user.id
+    mode = broadcast_state[uid]["mode"]
+    broadcast_state[uid]["message"] = message
+    broadcast_state[uid]["step"] = "ask_buttons"
+    kb = InlineKeyboardMarkup()
+    kb.add(InlineKeyboardButton("➕ Tugma qo'shish", callback_data="broadcast_add_btn"),
+           InlineKeyboardButton("⏭ O'tkazib yuborish", callback_data="broadcast_skip_btn"))
+    bot.reply_to(message, "Tugma qo'shishni xohlaysizmi?", reply_markup=kb)
+
+@bot.callback_query_handler(func=lambda c: c.data == "broadcast_add_btn")
+def broadcast_add_buttons_start(call):
+    uid = call.from_user.id
+    broadcast_state[uid]["step"] = "waiting_buttons"
+    bot.edit_message_text(
+        "🔘 Tugmalarni quyidagi formatda yuboring:\n\n"
+        "<code>Tugma nomi - URL</code>\n"
+        "Bir qatorda bir nechta: <code>Tugma1 - url1 | Tugma2 - url2</code>",
+        call.message.chat.id, call.message.message_id, parse_mode="HTML")
+
+@bot.message_handler(func=lambda m: broadcast_state.get(m.from_user.id, {}).get("step") == "waiting_buttons")
+def broadcast_save_buttons(message):
+    uid = message.from_user.id
+    text = message.text.strip()
+    buttons = []
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        row_buttons = []
+        for part in line.split("|"):
+            part = part.strip()
+            if " - " in part:
+                name, url = part.split(" - ", 1)
+                name = name.strip()
+                url = url.strip()
+                if name and url:
+                    row_buttons.append(InlineKeyboardButton(name, url=url))
+        if row_buttons:
+            buttons.append(row_buttons)
+    if not buttons:
+        bot.reply_to(message, "❌ Hech qanday tugma topilmadi. Qaytadan urinib ko'ring yoki /skip bosing.")
+        return
+    broadcast_state[uid]["buttons"] = buttons
+    broadcast_state[uid]["step"] = "confirm"
+    show_broadcast_confirm(message.chat.id, uid, message)
+
+@bot.message_handler(commands=['skip'])
+def broadcast_skip_buttons_cmd(message):
+    uid = message.from_user.id
+    if broadcast_state.get(uid, {}).get("step") == "waiting_buttons":
+        broadcast_state[uid].pop("buttons", None)
+        broadcast_state[uid]["step"] = "confirm"
+        show_broadcast_confirm(message.chat.id, uid, message)
+
+def show_broadcast_confirm(chat_id, uid, reply_to=None):
+    kb = InlineKeyboardMarkup()
+    kb.add(InlineKeyboardButton("✅ Tasdiqlash", callback_data="broadcast_final_confirm"),
+           InlineKeyboardButton("❌ Bekor qilish", callback_data="broadcast_cancel"))
+    text = "⚠️ Haqiqatdan ham shu xabarni barcha foydalanuvchilarga yubormoqchimisiz?"
+    if reply_to:
+        bot.reply_to(reply_to, text, reply_markup=kb)
+    else:
+        bot.send_message(chat_id, text, reply_markup=kb)
+
+@bot.callback_query_handler(func=lambda c: c.data == "broadcast_final_confirm")
+def broadcast_final_confirm(call):
+    uid = call.from_user.id
+    data = broadcast_state.get(uid, {})
+    msg = data.get("message")
+    if not msg:
+        bot.answer_callback_query(call.id, "❌ Xabar topilmadi!")
+        return
+    buttons = data.get("buttons")
+    markup = None
+    if buttons:
+        markup = InlineKeyboardMarkup(buttons)
+
     users = users_collection.find({})
     success = 0
     fail = 0
@@ -311,45 +411,49 @@ def broadcast_confirm(call):
                                        call.message.chat.id, call.message.message_id)
     for u in users:
         try:
-            if msg.forward_from or msg.forward_from_chat or msg.forward_date:
-                bot.copy_message(u["user_id"], msg.chat.id, msg.message_id)
-            elif msg.content_type == "text":
-                bot.send_message(u["user_id"], msg.text, parse_mode="HTML")
-            elif msg.content_type == "photo":
-                bot.send_photo(u["user_id"], msg.photo[-1].file_id, caption=msg.caption)
-            elif msg.content_type == "video":
-                bot.send_video(u["user_id"], msg.video.file_id, caption=msg.caption)
-            elif msg.content_type == "document":
-                bot.send_document(u["user_id"], msg.document.file_id, caption=msg.caption)
-            elif msg.content_type == "sticker":
-                bot.send_sticker(u["user_id"], msg.sticker.file_id)
-            elif msg.content_type == "audio":
-                bot.send_audio(u["user_id"], msg.audio.file_id, caption=msg.caption)
-            elif msg.content_type == "voice":
-                bot.send_voice(u["user_id"], msg.voice.file_id)
-            elif msg.content_type == "video_note":
-                bot.send_video_note(u["user_id"], msg.video_note.file_id)
+            if data["mode"] == "forward":
+                bot.copy_message(u["user_id"], msg.chat.id, msg.message_id, reply_markup=markup)
             else:
-                bot.copy_message(u["user_id"], msg.chat.id, msg.message_id)
+                # Oddiy xabarlar
+                if msg.content_type == "text":
+                    bot.send_message(u["user_id"], msg.text, reply_markup=markup, parse_mode="HTML")
+                elif msg.content_type == "photo":
+                    bot.send_photo(u["user_id"], msg.photo[-1].file_id, caption=msg.caption,
+                                   reply_markup=markup)
+                elif msg.content_type == "video":
+                    bot.send_video(u["user_id"], msg.video.file_id, caption=msg.caption,
+                                   reply_markup=markup)
+                elif msg.content_type == "document":
+                    bot.send_document(u["user_id"], msg.document.file_id, caption=msg.caption,
+                                      reply_markup=markup)
+                elif msg.content_type == "sticker":
+                    bot.send_sticker(u["user_id"], msg.sticker.file_id, reply_markup=markup)
+                elif msg.content_type == "audio":
+                    bot.send_audio(u["user_id"], msg.audio.file_id, caption=msg.caption,
+                                   reply_markup=markup)
+                elif msg.content_type == "voice":
+                    bot.send_voice(u["user_id"], msg.voice.file_id, reply_markup=markup)
+                elif msg.content_type == "video_note":
+                    bot.send_video_note(u["user_id"], msg.video_note.file_id, reply_markup=markup)
+                else:
+                    bot.copy_message(u["user_id"], msg.chat.id, msg.message_id, reply_markup=markup)
             success += 1
             time.sleep(0.05)
         except Exception as e:
             fail += 1
-            print(f"Xatolik {u.get('user_id')}: {e}")
+            print(f"Broadcast xatolik {u.get('user_id')}: {e}")
     bot.edit_message_text(
         f"✅ Xabar yuborildi!\n\n✅ Muvaffaqiyatli: {success}\n❌ Xatolik: {fail}",
         call.message.chat.id, call.message.message_id)
     functions.add_premium_reaction(bot, call.message.chat.id, call.message.message_id, "📨")
-    admin_state[uid] = None
-    admin_data[uid] = {}
+    broadcast_state.pop(uid, None)
 
 @bot.callback_query_handler(func=lambda c: c.data == "broadcast_cancel")
 def broadcast_cancel(call):
     uid = call.from_user.id
     bot.edit_message_text("❌ Xabar yuborish bekor qilindi.",
                           call.message.chat.id, call.message.message_id)
-    admin_state[uid] = None
-    admin_data[uid] = {}
+    broadcast_state.pop(uid, None)
 
 # ==========================
 #   CONTENTGA TUGMA QO'SHISH
@@ -846,6 +950,211 @@ def back_to_required_menu(call):
     bot.edit_message_text("📌 Majburiy obuna bo'limi:",
                           call.message.chat.id, call.message.message_id,
                           reply_markup=required_menu())
+
+# ==========================
+#   DIZAYN YARATISH
+# ==========================
+@bot.message_handler(func=lambda m: design_state.get(m.from_user.id, {}).get("step") == "anime_name")
+def design_get_name(message):
+    uid = message.from_user.id
+    design_state[uid]["anime_name"] = message.text.strip()
+    design_state[uid]["step"] = "episode"
+    bot.reply_to(message, "📺 Qism raqamini kiriting (masalan: 01):")
+
+@bot.message_handler(func=lambda m: design_state.get(m.from_user.id, {}).get("step") == "episode")
+def design_get_episode(message):
+    uid = message.from_user.id
+    design_state[uid]["episode"] = message.text.strip()
+    design_state[uid]["step"] = "season"
+    bot.reply_to(message, "📚 Faslni kiriting (agar kerak bo'lmasa /skip bosing):")
+
+@bot.message_handler(commands=['skip'])
+def design_skip_season(message):
+    uid = message.from_user.id
+    if design_state.get(uid, {}).get("step") == "season":
+        design_state[uid]["season"] = None
+        design_state[uid]["step"] = "channel"
+        bot.reply_to(message, "📢 Kanal nomini kiriting (masalan: AniGonUz):")
+    elif design_state.get(uid, {}).get("step") == "waiting_buttons":
+        # bu boshqa joyda ishlatiladi
+        pass
+
+@bot.message_handler(func=lambda m: design_state.get(m.from_user.id, {}).get("step") == "season" and not m.text.startswith("/"))
+def design_get_season(message):
+    uid = message.from_user.id
+    design_state[uid]["season"] = message.text.strip()
+    design_state[uid]["step"] = "channel"
+    bot.reply_to(message, "📢 Kanal nomini kiriting (masalan: AniGonUz):")
+
+@bot.message_handler(func=lambda m: design_state.get(m.from_user.id, {}).get("step") == "channel")
+def design_get_channel(message):
+    uid = message.from_user.id
+    design_state[uid]["channel"] = message.text.strip()
+    design_state[uid]["step"] = "image"
+    bot.reply_to(message, "🖼 Endi rasmni yuboring (fon uchun):")
+
+@bot.message_handler(content_types=['photo'], func=lambda m: design_state.get(m.from_user.id, {}).get("step") == "image")
+def design_get_image(message):
+    uid = message.from_user.id
+    file_id = message.photo[-1].file_id
+    design_state[uid]["image_id"] = file_id
+    design_state[uid]["step"] = "quality"
+    kb = InlineKeyboardMarkup()
+    kb.add(InlineKeyboardButton("HD", callback_data="design_hd"),
+           InlineKeyboardButton("SD", callback_data="design_sd"))
+    bot.reply_to(message, "Rasm tayyor! Qaysi formatda yuklash kerak?", reply_markup=kb)
+
+@bot.callback_query_handler(func=lambda c: c.data in ["design_hd", "design_sd"])
+def design_quality_selected(call):
+    uid = call.from_user.id
+    quality = "HD" if call.data == "design_hd" else "SD"
+    data = design_state[uid]
+    # Rasmni yaratish
+    bot.edit_message_text("⏳ Rasm yaratilmoqda...", call.message.chat.id, call.message.message_id)
+    try:
+        file_info = bot.get_file(data["image_id"])
+        downloaded = bot.download_file(file_info.file_path)
+        img = Image.open(io.BytesIO(downloaded)).convert("RGB")
+        # Rasm ustiga matn yozish
+        draw = ImageDraw.Draw(img)
+        # Font yuklash (agar mavjud bo'lmasa default)
+        try:
+            font = ImageFont.truetype("arial.ttf", size=40)
+            font_small = ImageFont.truetype("arial.ttf", size=30)
+        except:
+            font = ImageFont.load_default()
+            font_small = font
+        width, height = img.size
+        # Matnlar
+        channel = data["channel"].upper()
+        anime_name = data["anime_name"]
+        if data["season"]:
+            season_text = f"{data['season']}-FASL | QISM-{data['episode']}"
+        else:
+            season_text = f"QISM-{data['episode']}"
+        # Oq fonda qora matn (soya bilan)
+        def draw_text_with_outline(draw, text, position, font, text_color, outline_color, outline_width=2):
+            x, y = position
+            for dx in range(-outline_width, outline_width+1):
+                for dy in range(-outline_width, outline_width+1):
+                    if dx != 0 or dy != 0:
+                        draw.text((x+dx, y+dy), text, font=font, fill=outline_color)
+            draw.text((x, y), text, font=font, fill=text_color)
+
+        # Kanal nomi tepada markazda
+        bbox = draw.textbbox((0,0), channel, font=font)
+        text_width = bbox[2] - bbox[0]
+        x = (width - text_width) // 2
+        y = 50
+        draw_text_with_outline(draw, channel, (x, y), font, "white", "black")
+
+        # Fasl/qism
+        bbox2 = draw.textbbox((0,0), season_text, font=font_small)
+        tw2 = bbox2[2] - bbox2[0]
+        x2 = (width - tw2) // 2
+        y2 = height - 150
+        draw_text_with_outline(draw, season_text, (x2, y2), font_small, "white", "black")
+
+        # Anime nomi
+        bbox3 = draw.textbbox((0,0), anime_name, font=font)
+        tw3 = bbox3[2] - bbox3[0]
+        x3 = (width - tw3) // 2
+        y3 = height - 80
+        draw_text_with_outline(draw, anime_name, (x3, y3), font, "white", "black")
+
+        # Sifat sozlamalari
+        if quality == "HD":
+            output = io.BytesIO()
+            img.save(output, format="JPEG", quality=95)
+        else:
+            output = io.BytesIO()
+            img.save(output, format="JPEG", quality=70)
+        output.seek(0)
+
+        # Sanoq raqamini olish va oshirish
+        counter = design_counter.find_one_and_update(
+            {"_id": "design"},
+            {"$inc": {"seq": 1}},
+            upsert=True,
+            return_document=True
+        )
+        seq = counter["seq"] if counter else 1
+        filename = f"{BOT_USERNAME}-{seq}.jpg"
+
+        # Fayl sifatida yuborish
+        bot.send_document(call.message.chat.id, output, visible_file_name=filename,
+                          caption=f"✅ Dizayn tayyor!\nFormat: {quality}")
+
+        bot.edit_message_text("✅ Dizayn yaratildi!", call.message.chat.id, call.message.message_id)
+        functions.add_premium_reaction(bot, call.message.chat.id, call.message.message_id, "🎨")
+        design_state.pop(uid, None)
+    except Exception as e:
+        bot.edit_message_text(f"❌ Xatolik: {e}", call.message.chat.id, call.message.message_id)
+
+# ==========================
+#   SKRINSHOT
+# ==========================
+@bot.message_handler(content_types=['video', 'document'],
+                    func=lambda m: screenshot_state.get(m.from_user.id, {}).get("step") == "waiting_video")
+def screenshot_receive_video(message):
+    uid = message.from_user.id
+    file_id = None
+    if message.video:
+        file_id = message.video.file_id
+    elif message.document:
+        if message.document.mime_type and message.document.mime_type.startswith("video/"):
+            file_id = message.document.file_id
+        else:
+            bot.reply_to(message, "❌ Iltimos, video fayl yuboring!")
+            return
+    if not file_id:
+        bot.reply_to(message, "❌ Video topilmadi!")
+        return
+
+    status = bot.reply_to(message, "⏳ Video tahlil qilinmoqda va skrinshotlar olinmoqda...")
+    try:
+        # Afsuski, oddiy kutubxonalar bilan skrinshot olish qiyin.
+        # Bu funksiya serverda ffmpeg yoki opencv o'rnatilgan bo'lsa ishlaydi.
+        # Hozircha soddalashtirilgan xabar:
+        bot.edit_message_text(
+            "📸 Skrinshot funksiyasi hozircha faqat serverda ffmpeg mavjud bo'lganda ishlaydi.\n"
+            "Iltimos, keyinroq tekshiring yoki qo'lda skrinshot oling.",
+            status.chat.id, status.message_id
+        )
+        # Agar opencv o'rnatilgan bo'lsa, skrinshot olish kodi:
+        ""
+        import cv2
+        import tempfile
+        file_info = bot.get_file(file_id)
+        downloaded = bot.download_file(file_info.file_path)
+        with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp:
+            tmp.write(downloaded)
+            tmp_path = tmp.name
+        cap = cv2.VideoCapture(tmp_path)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        duration = total_frames / fps if fps > 0 else 0
+        # 10 ta teng oraliqda skrinshot olish
+        screenshots = []
+        for i in range(1, 11):
+            frame_pos = int(total_frames * i / 11)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_pos)
+            ret, frame = cap.read()
+            if ret:
+                _, buffer = cv2.imencode('.jpg', frame)
+                io_buf = io.BytesIO(buffer)
+                io_buf.name = f"scr_{i}.jpg"
+                screenshots.append(io_buf)
+        cap.release()
+        os.unlink(tmp_path)
+        # skrinshotlarni yuborish
+        for scr in screenshots:
+            bot.send_photo(message.chat.id, scr)
+        ""
+    except Exception as e:
+        bot.edit_message_text(f"❌ Xatolik: {e}", status.chat.id, status.message_id)
+    screenshot_state.pop(uid, None)
+    
 
 # Bot tahrirlash va o'chirish uchun handlerlar (oldin berilgan kodni ishlating)
 # ...
