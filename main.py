@@ -61,7 +61,7 @@ def webhook():
 def keep_alive():
     while True:
         try:
-            requests.get("https://yuklovchi-bot-80ui.onrender.com")
+            requests.get("https://yuklovchi-bot-5kne.onrender.com")
         except:
             pass
         time.sleep(60)
@@ -250,7 +250,7 @@ def multi_mode_select(call):
     if call.data == "multi_mode_single":
         admin_state[uid] = "multi_add_single"
         bot.edit_message_text(
-            "📥 1-1 rejimi: Kontentlarni tashlang.\nTugagach /stop yozing.",
+            "📥 1-1 rejimi: Kontentlarni tashlang. Tugagach /stop yozing.",
             call.message.chat.id,
             call.message.message_id
         )
@@ -258,20 +258,18 @@ def multi_mode_select(call):
         admin_state[uid] = "multi_add_batch"
         admin_data[uid] = {"batch": []}
         bot.edit_message_text(
-            "📥 ♾️-1 rejimi: Barcha kontentlarni yuboring.\nTugagach /stop bosing.",
+            "📥 ♾️-1 rejimi: Barcha kontentlarni yuboring. Tugagach /stop bosing.",
             call.message.chat.id,
             call.message.message_id
         )
 
 # ==========================
-#   /stop (BIRINCHI HANDLER - MUHIM!)
+#   /stop (BIRINCHI HANDLER)
 # ==========================
 @bot.message_handler(commands=['stop'])
 def stop_command(message):
     uid = message.from_user.id
     state = admin_state.get(uid)
-    
-    print(f"STOP komandasi: uid={uid}, state={state}")
 
     if state == "multi_add_batch":
         batch = admin_data.get(uid, {}).get("batch", [])
@@ -305,7 +303,7 @@ def stop_command(message):
         bot.reply_to(message, "✅ Barcha kontentlar qabul qilindi.", reply_markup=admin_panel())
         return
     
-    bot.reply_to(message, "❌ Hech qanday faol jarayon yo'q. /admin -> Cantent qo'shish ➕")
+    bot.reply_to(message, "❌ Hech qanday faol jarayon yo'q.")
 
 # ==========================
 #   MULTI-UPLOAD CONTENT SAVING
@@ -314,9 +312,8 @@ def stop_command(message):
 def save_multi(message):
     uid = message.from_user.id
     
-    # MUHIM: /stop ni tekshirish va o'tkazib yuborish
+    # /stop ni o'tkazib yuborish
     if message.text and message.text.strip() == "/stop":
-        print(f"save_multi: /stop ni o'tkazib yuborish")
         return
     
     state = admin_state.get(uid)
@@ -325,7 +322,6 @@ def save_multi(message):
         return
 
     if state == "multi_add_single":
-        # 1-1 rejimi: tez yuklash
         code = generate_code()
 
         if message.content_type == "video":
@@ -348,10 +344,8 @@ def save_multi(message):
         contents.insert_one(content)
         link = f"https://t.me/{BOT_USERNAME}?start={code}"
         bot.reply_to(message, link)
-        print(f"1-1 rejimi: kontent saqlandi, code={code}")
 
     elif state == "multi_add_batch":
-        # ♾️-1 rejimi: sekin yuklash (0.7 sekund)
         time.sleep(0.7)
         
         batch = admin_data.get(uid, {}).get("batch", [])
@@ -377,7 +371,6 @@ def save_multi(message):
         batch.append(item)
         admin_data[uid]["batch"] = batch
         bot.reply_to(message, f"✅ {order}-kontent qabul qilindi. /stop bilan tugating.")
-        print(f"♾️-1 rejimi: {order}-kontent qabul qilindi")
 
 # ==========================
 #   DELETE MAIN IMAGE
@@ -400,7 +393,7 @@ def save_main_image(message):
         admin_state[uid] = None
 
 # ==========================
-#   REFERRAL SYSTEM (SODDA)
+#   REFERRAL SYSTEM
 # ==========================
 @bot.callback_query_handler(func=lambda c: c.data == "referral_add")
 def referral_add(call):
@@ -909,7 +902,7 @@ def back_to_required_menu(call):
     bot.edit_message_text("📌 Majburiy obuna bo'limi:", call.message.chat.id, call.message.message_id, reply_markup=required_menu())
 
 # ==========================
-#   TEXT COPY (SODDA)
+#   TEXT COPY
 # ==========================
 @bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) == "text_copy_waiting")
 def text_copy_get_text(message):
@@ -991,7 +984,7 @@ def text_copy_get_channel(message):
     admin_data[uid] = {}
 
 # ==========================
-#   POST EDITOR (SODDA)
+#   POST EDITOR
 # ==========================
 @bot.message_handler(func=lambda m: admin_state.get(m.from_user.id) == "post_editor_waiting_link")
 def post_editor_get_link(message):
@@ -1027,7 +1020,6 @@ def post_editor_add_button(message):
     uid = message.from_user.id
     text = message.text.strip()
     if "|" in text:
-        # Bir qatordagi bir nechta tugmalar
         sub_buttons = text.split(" | ")
         for sub in sub_buttons:
             if " - " in sub:
@@ -1135,7 +1127,7 @@ def content_button_add_buttons(message):
     bot.reply_to(message, f"✅ Tugma qo'shildi!\n\n📋 Joriy tugmalar:\n{current}\n\nYana tugma qo'shishingiz mumkin yoki /done bilan tugating.")
 
 # ==========================
-#   VIDEO EDIT (SODDA)
+#   VIDEO EDIT
 # ==========================
 video_edit_state = {}
 
@@ -1272,7 +1264,7 @@ def schedule_delete(chat_id, message_id, delay=300):
             pass
     threading.Timer(delay, _delete).start()
 
-def send_content(chat_id, items, is_batch=False):
+def send_content(chat_id, items):
     # Tugmalarni tekshirish
     if items and len(items) > 0:
         first_item = items[0]
@@ -1333,8 +1325,6 @@ def send_content(chat_id, items, is_batch=False):
 # ==========================
 @bot.message_handler(commands=['start'])
 def start(message):
-    print(f"START komandasi: {message.text}")
-    
     if len(message.text.split()) == 1:
         users_collection.update_one({"user_id": message.from_user.id}, {"$set": {"user_id": message.from_user.id}}, upsert=True)
         markup = InlineKeyboardMarkup()
@@ -1343,7 +1333,6 @@ def start(message):
         return
     
     code = message.text.split()[1]
-    print(f"START code: {code}")
     
     if code.startswith("ref_"):
         ref_name = code.replace("ref_", "")
@@ -1359,8 +1348,6 @@ def start(message):
         return
     
     items = list(contents.find({"code": code}).sort("order", 1))
-    print(f"Kontentlar soni: {len(items)}")
-    
     if not items:
         bot.send_message(message.chat.id, "❌ Kontent topilmadi.")
         return
@@ -1381,8 +1368,7 @@ def start(message):
             bot.send_message(message.chat.id, "📢 Kontentni ko'rish uchun quyidagi botlarga start bosing:", reply_markup=get_required_bots_keyboard(message.from_user.id, code))
         return
     
-    is_batch = contents.count_documents({"code": code}) > 1
-    send_content(message.chat.id, items, is_batch)
+    send_content(message.chat.id, items)
 
 # ==========================
 #   CALLBACK HANDLER
@@ -1390,7 +1376,6 @@ def start(message):
 @bot.callback_query_handler(func=lambda call: True)
 def callback(call):
     data = call.data
-    print(f"CALLBACK: {data}")
 
     if data.startswith("close"):
         try:
@@ -1410,7 +1395,21 @@ def callback(call):
         bot.edit_message_text("Admin: @Shadow_Sxi\nKanal: @AniGonUz", call.message.chat.id, call.message.message_id, reply_markup=markup)
 
 # ==========================
+#   WEBHOOK SETUP
+# ==========================
+def setup_webhook():
+    try:
+        bot.remove_webhook()
+        time.sleep(1)
+        webhook_url = "https://yuklovchi-bot-5kne.onrender.com/webhook"
+        bot.set_webhook(url=webhook_url)
+        print(f"Webhook set to: {webhook_url}")
+    except Exception as e:
+        print(f"Webhook error: {e}")
+
+# ==========================
 #   RUN SERVER
 # ==========================
 if __name__ == "__main__":
+    setup_webhook()
     app.run(host="0.0.0.0", port=10000)
