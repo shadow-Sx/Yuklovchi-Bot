@@ -5,7 +5,6 @@ import string
 import threading
 import requests
 import telebot
-import io
 from flask import Flask, request
 from telebot.types import (
     ReplyKeyboardMarkup, KeyboardButton,
@@ -13,10 +12,10 @@ from telebot.types import (
 )
 from pymongo import MongoClient
 from bson.objectid import ObjectId
-from PIL import Image, ImageDraw, ImageFont
 
+# Import functions (faqat video_edit_state import qilinadi)
 import functions
-from functions import video_edit_state, text_copy_state, post_edit_state
+from functions import video_edit_state
 
 # ==========================
 #   TOKEN & SETTINGS
@@ -43,7 +42,6 @@ referrals_collection = db["referrals"]
 user_referrals_collection = db["user_referrals"]
 bot_settings_collection = db["bot_settings"]
 required_bots_collection = db["required_bots"]
-design_counter = db["design_counter"]
 
 # ==========================
 #   FLASK SERVER
@@ -77,7 +75,6 @@ def generate_code(length=12):
 admin_state = {}
 admin_data = {}
 add_button_state = {}
-design_state = {}
 screenshot_state = {}
 broadcast_state = {}
 
@@ -93,10 +90,9 @@ def admin_panel():
 
 def second_menu():
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row(KeyboardButton("Referal"), KeyboardButton("Text Copy"))
-    markup.row(KeyboardButton("Post Tayyorla"), KeyboardButton("Video Edit"))
-    markup.row(KeyboardButton("Cantnetga tugma qoshish"), KeyboardButton("Dizayn Yaratish"))
-    markup.row(KeyboardButton("Skrinshot"), KeyboardButton("1-Bo'lim"))
+    markup.row(KeyboardButton("Referal"), KeyboardButton("Video Edit"))
+    markup.row(KeyboardButton("Cantnetga tugma qoshish"), KeyboardButton("Skrinshot"))
+    markup.row(KeyboardButton("1-Bo'lim"))
     return markup
 
 def required_menu():
@@ -132,8 +128,8 @@ def admin_start(message):
 
 @bot.message_handler(func=lambda m: m.from_user.id == ADMIN_ID and m.text in [
     "Cantent Qo'shish", "Majburi Obuna", "Habar Yuborish", "Referal",
-    "Rasm Sozlash", "Video Edit", "Text Copy", "Post Tayyorla", "🔙 Chiqish",
-    "2-Bo'lim", "1-Bo'lim", "Cantnetga tugma qoshish", "Dizayn Yaratish", "Skrinshot"
+    "Rasm Sozlash", "Video Edit", "🔙 Chiqish",
+    "2-Bo'lim", "1-Bo'lim", "Cantnetga tugma qoshish", "Skrinshot"
 ])
 def admin_buttons(message):
     uid = message.from_user.id
@@ -171,12 +167,6 @@ def admin_buttons(message):
     elif text == "Video Edit":
         functions.start_video_edit(bot, message)
 
-    elif text == "Text Copy":
-        functions.start_text_copy(bot, uid)
-
-    elif text == "Post Tayyorla":
-        functions.start_post_editor(bot, message)
-
     elif text == "2-Bo'lim":
         bot.send_message(uid, "🔽 2-Bo'lim menyusi:", reply_markup=second_menu())
 
@@ -189,10 +179,6 @@ def admin_buttons(message):
             "📎 Iltimos, kontent havolasini yoki start kodini yuboring:\n\n"
             f"Masalan: <code>https://t.me/{BOT_USERNAME}?start=abc123</code>\nyoki <code>abc123</code>")
 
-    elif text == "Dizayn Yaratish":
-        design_state[uid] = {"step": "anime_name"}
-        bot.reply_to(message, "🎨 Anime nomini yuboring:")
-
     elif text == "Skrinshot":
         screenshot_state[uid] = {"step": "waiting_video"}
         bot.reply_to(message, "📸 Video yoki faylni yuboring (maks 10 ta skrinshot olinadi).")
@@ -202,7 +188,6 @@ def admin_buttons(message):
         admin_data.pop(uid, None)
         add_button_state.pop(uid, None)
         broadcast_state.pop(uid, None)
-        design_state.pop(uid, None)
         screenshot_state.pop(uid, None)
         bot.send_message(uid, "<b>Admin paneldan chiqdingiz.</b>",
                          reply_markup=telebot.types.ReplyKeyboardRemove())
@@ -224,15 +209,9 @@ def handle_photo(message):
     uid = message.from_user.id
     if uid != ADMIN_ID:
         return
-    # Dizayn yaratish uchun rasm
-    if design_state.get(uid, {}).get("step") == "image":
-        design_get_image(message)
-        return
-    # Video edit uchun rasm
     if video_edit_state.get(uid, {}).get("step") == "waiting_image":
         functions.handle_image_upload(bot, message)
         return
-    # Majburiy obuna asosiy rasm
     if admin_state.get(uid) == "set_main_image":
         save_main_image(message)
         return
@@ -552,7 +531,7 @@ def save_multi(message):
     if state == "multi_add_single":
         time.sleep(0.1)
     elif state == "multi_add_batch":
-        time.sleep(0.8)  # 0.7 dan 0.8 ga o'zgartirildi
+        time.sleep(0.7)
     content_type = message.content_type
     item = {"type": content_type, "order": 1}
     if content_type == "video":
@@ -955,119 +934,7 @@ def back_to_required_menu(call):
                           reply_markup=required_menu())
 
 # ==========================
-#   DIZAYN YARATISH
-# ==========================
-@bot.message_handler(func=lambda m: design_state.get(m.from_user.id, {}).get("step") == "anime_name")
-def design_get_name(message):
-    uid = message.from_user.id
-    design_state[uid]["anime_name"] = message.text.strip()
-    design_state[uid]["step"] = "episode"
-    bot.reply_to(message, "📺 Qism raqamini kiriting (masalan: 01):")
-
-@bot.message_handler(func=lambda m: design_state.get(m.from_user.id, {}).get("step") == "episode")
-def design_get_episode(message):
-    uid = message.from_user.id
-    design_state[uid]["episode"] = message.text.strip()
-    design_state[uid]["step"] = "season"
-    bot.reply_to(message, "📚 Faslni kiriting (agar kerak bo'lmasa /skip bosing):")
-
-@bot.message_handler(commands=['skip'])
-def design_skip_season(message):
-    uid = message.from_user.id
-    if design_state.get(uid, {}).get("step") == "season":
-        design_state[uid]["season"] = None
-        design_state[uid]["step"] = "channel"
-        bot.reply_to(message, "📢 Kanal nomini kiriting (masalan: AniGonUz):")
-
-@bot.message_handler(func=lambda m: design_state.get(m.from_user.id, {}).get("step") == "season" and not m.text.startswith("/"))
-def design_get_season(message):
-    uid = message.from_user.id
-    design_state[uid]["season"] = message.text.strip()
-    design_state[uid]["step"] = "channel"
-    bot.reply_to(message, "📢 Kanal nomini kiriting (masalan: AniGonUz):")
-
-@bot.message_handler(func=lambda m: design_state.get(m.from_user.id, {}).get("step") == "channel")
-def design_get_channel(message):
-    uid = message.from_user.id
-    design_state[uid]["channel"] = message.text.strip()
-    design_state[uid]["step"] = "image"
-    bot.reply_to(message, "🖼 Endi rasmni yuboring (fon uchun):")
-
-def design_get_image(message):
-    uid = message.from_user.id
-    file_id = message.photo[-1].file_id
-    design_state[uid]["image_id"] = file_id
-    design_state[uid]["step"] = "quality"
-    kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("HD", callback_data="design_hd"),
-           InlineKeyboardButton("SD", callback_data="design_sd"))
-    bot.reply_to(message, "Rasm tayyor! Qaysi formatda yuklash kerak?", reply_markup=kb)
-
-@bot.callback_query_handler(func=lambda c: c.data in ["design_hd", "design_sd"])
-def design_quality_selected(call):
-    uid = call.from_user.id
-    quality = "HD" if call.data == "design_hd" else "SD"
-    data = design_state[uid]
-    bot.edit_message_text("⏳ Rasm yaratilmoqda...", call.message.chat.id, call.message.message_id)
-    try:
-        file_info = bot.get_file(data["image_id"])
-        downloaded = bot.download_file(file_info.file_path)
-        img = Image.open(io.BytesIO(downloaded)).convert("RGB")
-        draw = ImageDraw.Draw(img)
-        try:
-            font = ImageFont.truetype("arial.ttf", size=40)
-            font_small = ImageFont.truetype("arial.ttf", size=30)
-        except:
-            font = ImageFont.load_default()
-            font_small = font
-        width, height = img.size
-        channel = data["channel"].upper()
-        anime_name = data["anime_name"]
-        if data.get("season"):
-            season_text = f"{data['season']}-FASL | QISM-{data['episode']}"
-        else:
-            season_text = f"QISM-{data['episode']}"
-
-        def draw_text_with_outline(draw, text, pos, font, text_color, outline_color, outline=2):
-            x, y = pos
-            for dx in range(-outline, outline+1):
-                for dy in range(-outline, outline+1):
-                    if dx != 0 or dy != 0:
-                        draw.text((x+dx, y+dy), text, font=font, fill=outline_color)
-            draw.text((x, y), text, font=font, fill=text_color)
-
-        # Kanal
-        bbox = draw.textbbox((0,0), channel, font=font)
-        tw = bbox[2] - bbox[0]
-        draw_text_with_outline(draw, channel, ((width-tw)//2, 50), font, "white", "black")
-        # Fasl/qism
-        bbox2 = draw.textbbox((0,0), season_text, font=font_small)
-        tw2 = bbox2[2] - bbox2[0]
-        draw_text_with_outline(draw, season_text, ((width-tw2)//2, height-150), font_small, "white", "black")
-        # Anime nomi
-        bbox3 = draw.textbbox((0,0), anime_name, font=font)
-        tw3 = bbox3[2] - bbox3[0]
-        draw_text_with_outline(draw, anime_name, ((width-tw3)//2, height-80), font, "white", "black")
-
-        output = io.BytesIO()
-        img.save(output, format="JPEG", quality=95 if quality=="HD" else 70)
-        output.seek(0)
-
-        counter = design_counter.find_one_and_update(
-            {"_id": "design"}, {"$inc": {"seq": 1}}, upsert=True, return_document=True
-        )
-        seq = counter["seq"] if counter else 1
-        filename = f"{BOT_USERNAME}-{seq}.jpg"
-        bot.send_document(call.message.chat.id, output, visible_file_name=filename,
-                          caption=f"✅ Dizayn tayyor!\nFormat: {quality}")
-        bot.edit_message_text("✅ Dizayn yaratildi!", call.message.chat.id, call.message.message_id)
-        functions.add_premium_reaction(bot, call.message.chat.id, call.message.message_id, "🎨")
-        design_state.pop(uid, None)
-    except Exception as e:
-        bot.edit_message_text(f"❌ Xatolik: {e}", call.message.chat.id, call.message.message_id)
-
-# ==========================
-#   SKRINSHOT (soddalashtirilgan)
+#   SKRINSHOT (oddiy stub)
 # ==========================
 @bot.message_handler(content_types=['video', 'document'],
                     func=lambda m: screenshot_state.get(m.from_user.id, {}).get("step") == "waiting_video")
@@ -1077,7 +944,7 @@ def screenshot_receive_video(message):
     screenshot_state.pop(uid, None)
 
 # ==========================
-#   MAJBURIY OBUNA TEKSHIRISH
+#   MAJBURIY OBUNA TEKSHIRISH (oldingi kod)
 # ==========================
 def check_required_subs(user_id):
     required = list(required_channels_collection.find({}))
@@ -1338,42 +1205,12 @@ def callback(call):
         functions.video_edit_callback(bot, call)
 
 # ==========================
-#   MESSAGE HANDLERS (functions ga)
+#   MESSAGE HANDLERS (faqat video va photo)
 # ==========================
 @bot.message_handler(content_types=['video'])
 def handle_video(message):
     if message.from_user.id == ADMIN_ID:
         functions.handle_video_upload(bot, message, BOT_USERNAME)
-
-@bot.message_handler(func=lambda m: text_copy_state.get(m.from_user.id, {}).get("step") == "waiting_text")
-def handle_text_copy_text(message):
-    if message.from_user.id != ADMIN_ID: return
-    functions.handle_text_copy_message(bot, message)
-
-@bot.message_handler(func=lambda m: text_copy_state.get(m.from_user.id, {}).get("step") == "waiting_count")
-def handle_text_copy_count(message):
-    if message.from_user.id != ADMIN_ID: return
-    functions.handle_text_copy_count(bot, message)
-
-@bot.message_handler(func=lambda m: text_copy_state.get(m.from_user.id, {}).get("step") == "waiting_channel")
-def handle_text_copy_channel(message):
-    if message.from_user.id != ADMIN_ID: return
-    functions.handle_text_copy_channel(bot, message)
-
-@bot.message_handler(func=lambda m: post_edit_state.get(m.from_user.id, {}).get("step") == "waiting_post_link")
-def handle_post_link(message):
-    if message.from_user.id != ADMIN_ID: return
-    functions.handle_post_link(bot, message)
-
-@bot.message_handler(func=lambda m: post_edit_state.get(m.from_user.id, {}).get("step") == "waiting_buttons" and not m.text.startswith("/"))
-def handle_post_button(message):
-    if message.from_user.id != ADMIN_ID: return
-    functions.add_button_to_post(bot, message)
-
-@bot.message_handler(commands=['done'])
-def done_post(message):
-    if message.from_user.id != ADMIN_ID: return
-    functions.finish_post_editor(bot, message)
 
 # ==========================
 #   RUN SERVER
