@@ -15,7 +15,6 @@ from pymongo import MongoClient
 from bson.objectid import ObjectId
 from PIL import Image, ImageDraw, ImageFont
 
-# Import functions
 import functions
 from functions import video_edit_state, text_copy_state, post_edit_state
 
@@ -221,15 +220,31 @@ def delete_main_image(call):
 #   MAIN IMAGE SETUP
 # ==========================
 @bot.message_handler(content_types=['photo'])
+def handle_photo(message):
+    uid = message.from_user.id
+    if uid != ADMIN_ID:
+        return
+    # Dizayn yaratish uchun rasm
+    if design_state.get(uid, {}).get("step") == "image":
+        design_get_image(message)
+        return
+    # Video edit uchun rasm
+    if video_edit_state.get(uid, {}).get("step") == "waiting_image":
+        functions.handle_image_upload(bot, message)
+        return
+    # Majburiy obuna asosiy rasm
+    if admin_state.get(uid) == "set_main_image":
+        save_main_image(message)
+        return
+
 def save_main_image(message):
     uid = message.from_user.id
-    if admin_state.get(uid) == "set_main_image":
-        file_id = message.photo[-1].file_id
-        bot_settings_collection.update_one({"setting": "main_image"},
-                                           {"$set": {"image_id": file_id}}, upsert=True)
-        sent = bot.reply_to(message, "✅ Rasm saqlandi! Endi majburiy obuna xabari rasm bilan chiqadi.")
-        functions.add_premium_reaction(bot, sent.chat.id, sent.message_id, "✅")
-        admin_state[uid] = None
+    file_id = message.photo[-1].file_id
+    bot_settings_collection.update_one({"setting": "main_image"},
+                                       {"$set": {"image_id": file_id}}, upsert=True)
+    sent = bot.reply_to(message, "✅ Rasm saqlandi! Endi majburiy obuna xabari rasm bilan chiqadi.")
+    functions.add_premium_reaction(bot, sent.chat.id, sent.message_id, "✅")
+    admin_state[uid] = None
 
 # ==========================
 #   REFERRAL SYSTEM
@@ -308,7 +323,7 @@ def referral_back(call):
                           call.message.chat.id, call.message.message_id, reply_markup=kb)
 
 # ==========================
-#   BROADCAST (YANGILANGAN)
+#   BROADCAST (TUZATILGAN)
 # ==========================
 @bot.callback_query_handler(func=lambda c: c.data in ["broadcast_forward", "broadcast_normal"])
 def broadcast_mode_selected(call):
@@ -317,16 +332,13 @@ def broadcast_mode_selected(call):
         return
     mode = "forward" if call.data == "broadcast_forward" else "normal"
     broadcast_state[uid] = {"step": "waiting_message", "mode": mode}
-    if mode == "forward":
-        text = "📨 Forward xabaringizni yuboring (kanaldan forward qilingan bo'lishi mumkin)."
-    else:
-        text = "📝 Yaxshi, habaringizni yuboring (matn, rasm, video, fayl, stiker va boshqalar)."
+    text = "📨 Forward xabaringizni yuboring." if mode == "forward" else "📝 Yaxshi, habaringizni yuboring (media, stiker va boshqalar)."
     bot.edit_message_text(text, call.message.chat.id, call.message.message_id)
 
-@bot.message_handler(func=lambda m: broadcast_state.get(m.from_user.id, {}).get("step") == "waiting_message")
+@bot.message_handler(content_types=['text', 'photo', 'video', 'document', 'sticker', 'audio', 'voice', 'video_note'],
+                    func=lambda m: broadcast_state.get(m.from_user.id, {}).get("step") == "waiting_message")
 def broadcast_receive_message(message):
     uid = message.from_user.id
-    mode = broadcast_state[uid]["mode"]
     broadcast_state[uid]["message"] = message
     broadcast_state[uid]["step"] = "ask_buttons"
     kb = InlineKeyboardMarkup()
@@ -398,9 +410,7 @@ def broadcast_final_confirm(call):
         bot.answer_callback_query(call.id, "❌ Xabar topilmadi!")
         return
     buttons = data.get("buttons")
-    markup = None
-    if buttons:
-        markup = InlineKeyboardMarkup(buttons)
+    markup = InlineKeyboardMarkup(buttons) if buttons else None
 
     users = users_collection.find({})
     success = 0
@@ -412,23 +422,18 @@ def broadcast_final_confirm(call):
             if data["mode"] == "forward":
                 bot.copy_message(u["user_id"], msg.chat.id, msg.message_id, reply_markup=markup)
             else:
-                # Oddiy xabarlar
                 if msg.content_type == "text":
                     bot.send_message(u["user_id"], msg.text, reply_markup=markup, parse_mode="HTML")
                 elif msg.content_type == "photo":
-                    bot.send_photo(u["user_id"], msg.photo[-1].file_id, caption=msg.caption,
-                                   reply_markup=markup)
+                    bot.send_photo(u["user_id"], msg.photo[-1].file_id, caption=msg.caption, reply_markup=markup)
                 elif msg.content_type == "video":
-                    bot.send_video(u["user_id"], msg.video.file_id, caption=msg.caption,
-                                   reply_markup=markup)
+                    bot.send_video(u["user_id"], msg.video.file_id, caption=msg.caption, reply_markup=markup)
                 elif msg.content_type == "document":
-                    bot.send_document(u["user_id"], msg.document.file_id, caption=msg.caption,
-                                      reply_markup=markup)
+                    bot.send_document(u["user_id"], msg.document.file_id, caption=msg.caption, reply_markup=markup)
                 elif msg.content_type == "sticker":
                     bot.send_sticker(u["user_id"], msg.sticker.file_id, reply_markup=markup)
                 elif msg.content_type == "audio":
-                    bot.send_audio(u["user_id"], msg.audio.file_id, caption=msg.caption,
-                                   reply_markup=markup)
+                    bot.send_audio(u["user_id"], msg.audio.file_id, caption=msg.caption, reply_markup=markup)
                 elif msg.content_type == "voice":
                     bot.send_voice(u["user_id"], msg.voice.file_id, reply_markup=markup)
                 elif msg.content_type == "video_note":
@@ -973,8 +978,6 @@ def design_skip_season(message):
         design_state[uid]["season"] = None
         design_state[uid]["step"] = "channel"
         bot.reply_to(message, "📢 Kanal nomini kiriting (masalan: AniGonUz):")
-    elif design_state.get(uid, {}).get("step") == "waiting_buttons":
-        pass
 
 @bot.message_handler(func=lambda m: design_state.get(m.from_user.id, {}).get("step") == "season" and not m.text.startswith("/"))
 def design_get_season(message):
@@ -990,7 +993,6 @@ def design_get_channel(message):
     design_state[uid]["step"] = "image"
     bot.reply_to(message, "🖼 Endi rasmni yuboring (fon uchun):")
 
-@bot.message_handler(content_types=['photo'], func=lambda m: design_state.get(m.from_user.id, {}).get("step") == "image")
 def design_get_image(message):
     uid = message.from_user.id
     file_id = message.photo[-1].file_id
@@ -1025,40 +1027,34 @@ def design_quality_selected(call):
             season_text = f"{data['season']}-FASL | QISM-{data['episode']}"
         else:
             season_text = f"QISM-{data['episode']}"
-        def draw_text_with_outline(draw, text, position, font, text_color, outline_color, outline_width=2):
-            x, y = position
-            for dx in range(-outline_width, outline_width+1):
-                for dy in range(-outline_width, outline_width+1):
+
+        def draw_text_with_outline(draw, text, pos, font, text_color, outline_color, outline=2):
+            x, y = pos
+            for dx in range(-outline, outline+1):
+                for dy in range(-outline, outline+1):
                     if dx != 0 or dy != 0:
                         draw.text((x+dx, y+dy), text, font=font, fill=outline_color)
             draw.text((x, y), text, font=font, fill=text_color)
+
+        # Kanal
         bbox = draw.textbbox((0,0), channel, font=font)
-        text_width = bbox[2] - bbox[0]
-        x = (width - text_width) // 2
-        y = 50
-        draw_text_with_outline(draw, channel, (x, y), font, "white", "black")
+        tw = bbox[2] - bbox[0]
+        draw_text_with_outline(draw, channel, ((width-tw)//2, 50), font, "white", "black")
+        # Fasl/qism
         bbox2 = draw.textbbox((0,0), season_text, font=font_small)
         tw2 = bbox2[2] - bbox2[0]
-        x2 = (width - tw2) // 2
-        y2 = height - 150
-        draw_text_with_outline(draw, season_text, (x2, y2), font_small, "white", "black")
+        draw_text_with_outline(draw, season_text, ((width-tw2)//2, height-150), font_small, "white", "black")
+        # Anime nomi
         bbox3 = draw.textbbox((0,0), anime_name, font=font)
         tw3 = bbox3[2] - bbox3[0]
-        x3 = (width - tw3) // 2
-        y3 = height - 80
-        draw_text_with_outline(draw, anime_name, (x3, y3), font, "white", "black")
-        if quality == "HD":
-            output = io.BytesIO()
-            img.save(output, format="JPEG", quality=95)
-        else:
-            output = io.BytesIO()
-            img.save(output, format="JPEG", quality=70)
+        draw_text_with_outline(draw, anime_name, ((width-tw3)//2, height-80), font, "white", "black")
+
+        output = io.BytesIO()
+        img.save(output, format="JPEG", quality=95 if quality=="HD" else 70)
         output.seek(0)
+
         counter = design_counter.find_one_and_update(
-            {"_id": "design"},
-            {"$inc": {"seq": 1}},
-            upsert=True,
-            return_document=True
+            {"_id": "design"}, {"$inc": {"seq": 1}}, upsert=True, return_document=True
         )
         seq = counter["seq"] if counter else 1
         filename = f"{BOT_USERNAME}-{seq}.jpg"
@@ -1071,33 +1067,13 @@ def design_quality_selected(call):
         bot.edit_message_text(f"❌ Xatolik: {e}", call.message.chat.id, call.message.message_id)
 
 # ==========================
-#   SKRINSHOT (oddiy)
+#   SKRINSHOT (soddalashtirilgan)
 # ==========================
 @bot.message_handler(content_types=['video', 'document'],
                     func=lambda m: screenshot_state.get(m.from_user.id, {}).get("step") == "waiting_video")
 def screenshot_receive_video(message):
     uid = message.from_user.id
-    file_id = None
-    if message.video:
-        file_id = message.video.file_id
-    elif message.document:
-        if message.document.mime_type and message.document.mime_type.startswith("video/"):
-            file_id = message.document.file_id
-        else:
-            bot.reply_to(message, "❌ Iltimos, video fayl yuboring!")
-            return
-    if not file_id:
-        bot.reply_to(message, "❌ Video topilmadi!")
-        return
-    status = bot.reply_to(message, "⏳ Video tahlil qilinmoqda va skrinshotlar olinmoqda...")
-    try:
-        bot.edit_message_text(
-            "📸 Skrinshot funksiyasi hozircha faqat serverda ffmpeg mavjud bo'lganda ishlaydi.\n"
-            "Iltimos, keyinroq tekshiring yoki qo'lda skrinshot oling.",
-            status.chat.id, status.message_id
-        )
-    except Exception as e:
-        bot.edit_message_text(f"❌ Xatolik: {e}", status.chat.id, status.message_id)
+    bot.reply_to(message, "📸 Skrinshot funksiyasi hozircha ishlamaydi. Keyinroq qo'shiladi.")
     screenshot_state.pop(uid, None)
 
 # ==========================
@@ -1191,19 +1167,15 @@ def send_content(chat_id, items, is_batch=False):
             if item["type"] == "text":
                 msg = bot.send_message(chat_id, item["text"], reply_markup=buttons_markup)
             elif item["type"] == "photo":
-                msg = bot.send_photo(chat_id, item["file_id"], caption=item.get("caption"),
-                                     reply_markup=buttons_markup)
+                msg = bot.send_photo(chat_id, item["file_id"], caption=item.get("caption"), reply_markup=buttons_markup)
             elif item["type"] == "video":
-                msg = bot.send_video(chat_id, item["file_id"], caption=item.get("caption"),
-                                     reply_markup=buttons_markup)
+                msg = bot.send_video(chat_id, item["file_id"], caption=item.get("caption"), reply_markup=buttons_markup)
             elif item["type"] == "document":
-                msg = bot.send_document(chat_id, item["file_id"], caption=item.get("caption"),
-                                        reply_markup=buttons_markup)
+                msg = bot.send_document(chat_id, item["file_id"], caption=item.get("caption"), reply_markup=buttons_markup)
             elif item["type"] == "sticker":
                 msg = bot.send_sticker(chat_id, item["file_id"], reply_markup=buttons_markup)
             elif item["type"] == "audio":
-                msg = bot.send_audio(chat_id, item["file_id"], caption=item.get("caption"),
-                                     reply_markup=buttons_markup)
+                msg = bot.send_audio(chat_id, item["file_id"], caption=item.get("caption"), reply_markup=buttons_markup)
             elif item["type"] == "voice":
                 msg = bot.send_voice(chat_id, item["file_id"], reply_markup=buttons_markup)
             elif item["type"] == "video_note":
@@ -1221,19 +1193,15 @@ def send_content(chat_id, items, is_batch=False):
             if item["type"] == "text":
                 msg = bot.send_message(chat_id, item["text"], reply_markup=buttons_markup)
             elif item["type"] == "photo":
-                msg = bot.send_photo(chat_id, item["file_id"], caption=item.get("caption"),
-                                     reply_markup=buttons_markup)
+                msg = bot.send_photo(chat_id, item["file_id"], caption=item.get("caption"), reply_markup=buttons_markup)
             elif item["type"] == "video":
-                msg = bot.send_video(chat_id, item["file_id"], caption=item.get("caption"),
-                                     reply_markup=buttons_markup)
+                msg = bot.send_video(chat_id, item["file_id"], caption=item.get("caption"), reply_markup=buttons_markup)
             elif item["type"] == "document":
-                msg = bot.send_document(chat_id, item["file_id"], caption=item.get("caption"),
-                                        reply_markup=buttons_markup)
+                msg = bot.send_document(chat_id, item["file_id"], caption=item.get("caption"), reply_markup=buttons_markup)
             elif item["type"] == "sticker":
                 msg = bot.send_sticker(chat_id, item["file_id"], reply_markup=buttons_markup)
             elif item["type"] == "audio":
-                msg = bot.send_audio(chat_id, item["file_id"], caption=item.get("caption"),
-                                     reply_markup=buttons_markup)
+                msg = bot.send_audio(chat_id, item["file_id"], caption=item.get("caption"), reply_markup=buttons_markup)
             elif item["type"] == "voice":
                 msg = bot.send_voice(chat_id, item["file_id"], reply_markup=buttons_markup)
             elif item["type"] == "video_note":
@@ -1370,16 +1338,8 @@ def callback(call):
         functions.video_edit_callback(bot, call)
 
 # ==========================
-#   MESSAGE HANDLERS
+#   MESSAGE HANDLERS (functions ga)
 # ==========================
-@bot.message_handler(content_types=['photo'])
-def handle_photo(message):
-    if message.from_user.id == ADMIN_ID:
-        if admin_state.get(message.from_user.id) == "set_main_image":
-            save_main_image(message)
-            return
-        functions.handle_image_upload(bot, message)
-
 @bot.message_handler(content_types=['video'])
 def handle_video(message):
     if message.from_user.id == ADMIN_ID:
@@ -1387,38 +1347,32 @@ def handle_video(message):
 
 @bot.message_handler(func=lambda m: text_copy_state.get(m.from_user.id, {}).get("step") == "waiting_text")
 def handle_text_copy_text(message):
-    if message.from_user.id != ADMIN_ID:
-        return
+    if message.from_user.id != ADMIN_ID: return
     functions.handle_text_copy_message(bot, message)
 
 @bot.message_handler(func=lambda m: text_copy_state.get(m.from_user.id, {}).get("step") == "waiting_count")
 def handle_text_copy_count(message):
-    if message.from_user.id != ADMIN_ID:
-        return
+    if message.from_user.id != ADMIN_ID: return
     functions.handle_text_copy_count(bot, message)
 
 @bot.message_handler(func=lambda m: text_copy_state.get(m.from_user.id, {}).get("step") == "waiting_channel")
 def handle_text_copy_channel(message):
-    if message.from_user.id != ADMIN_ID:
-        return
+    if message.from_user.id != ADMIN_ID: return
     functions.handle_text_copy_channel(bot, message)
 
 @bot.message_handler(func=lambda m: post_edit_state.get(m.from_user.id, {}).get("step") == "waiting_post_link")
 def handle_post_link(message):
-    if message.from_user.id != ADMIN_ID:
-        return
+    if message.from_user.id != ADMIN_ID: return
     functions.handle_post_link(bot, message)
 
 @bot.message_handler(func=lambda m: post_edit_state.get(m.from_user.id, {}).get("step") == "waiting_buttons" and not m.text.startswith("/"))
 def handle_post_button(message):
-    if message.from_user.id != ADMIN_ID:
-        return
+    if message.from_user.id != ADMIN_ID: return
     functions.add_button_to_post(bot, message)
 
 @bot.message_handler(commands=['done'])
 def done_post(message):
-    if message.from_user.id != ADMIN_ID:
-        return
+    if message.from_user.id != ADMIN_ID: return
     functions.finish_post_editor(bot, message)
 
 # ==========================
