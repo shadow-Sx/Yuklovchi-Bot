@@ -669,7 +669,7 @@ def handle_text_copy_channel(bot, message):
     success = 0
     fail = 0
     
-    for i in range(1, count + 1):
+    for i in range(1, count + 1): 
         try:
             formatted_text = text_template.replace("{raqam}", str(i))
             
