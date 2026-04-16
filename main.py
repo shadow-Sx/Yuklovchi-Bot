@@ -962,22 +962,16 @@ def check_required_subs(user_id):
         channel_id = ch["channel_id"]
         try:
             member = bot.get_chat_member(channel_id, user_id)
-            # Agar foydalanuvchi a'zo bo'lsa yoki admin/creator bo'lsa
             if member.status in ["member", "administrator", "creator", "restricted"]:
                 continue
-        except Exception as e:
-            # Agar xatolik bo'lsa (masalan, bot admin emas), foydalanuvchini obuna bo'lmagan deb hisoblaymiz
-            print(f"Tekshirishda xatolik: {e}")
-            return False
+        except:
+            pass
 
-        # Endi a'zo bo'lmagan holat uchun zayavkani tekshiramiz
         join_req = join_requests_collection.find_one({"user_id": user_id, "channel_id": channel_id})
         if join_req:
-            continue  # zayavka yuborgan, obuna bo'lgan hisoblaymiz
+            continue
 
-        # Agar na a'zo, na zayavka bo'lsa
         return False
-
     return True
     
 def check_required_bots(user_id):
@@ -996,16 +990,30 @@ def get_required_keyboard(user_id, code):
     optional = list(optional_channels_collection.find({}))
     buttons = []
     for ch in required:
+        channel_id = ch["channel_id"]
+        is_member = False
         try:
-            member = bot.get_chat_member(ch["channel_id"], user_id)
+            member = bot.get_chat_member(channel_id, user_id)
             if member.status in ["member", "administrator", "creator", "restricted"]:
-                continue
+                is_member = True
         except:
             pass
-        buttons.append(InlineKeyboardButton(ch["name"], url=ch["url"]))
+
+        # Agar a'zo bo'lmasa, zayavkani tekshiramiz
+        if not is_member:
+            join_req = join_requests_collection.find_one({"user_id": user_id, "channel_id": channel_id})
+            if join_req:
+                is_member = True   # zayavka yuborgan -> a'zo hisoblanadi
+
+        # Agar a'zo bo'lmasa (na haqiqiy a'zo, na zayavka), tugmaga qo'shamiz
+        if not is_member:
+            buttons.append(InlineKeyboardButton(ch["name"], url=ch["url"]))
+
+    # Ixtiyoriy kanallarni ham qo'shamiz, agar hech bo'lmaganda bitta majburiy kanalga a'zo bo'lmasa
     if not check_required_subs(user_id):
         for ch in optional:
             buttons.append(InlineKeyboardButton(ch["name"], url=ch["url"]))
+
     random.shuffle(buttons)
     kb = InlineKeyboardMarkup(row_width=1)
     for btn in buttons:
