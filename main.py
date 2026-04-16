@@ -41,6 +41,7 @@ referrals_collection = db["referrals"]
 user_referrals_collection = db["user_referrals"]
 bot_settings_collection = db["bot_settings"]
 required_bots_collection = db["required_bots"]
+join_requests_collection = db["join_requests"]
 
 # ==========================
 #   FLASK SERVER
@@ -518,9 +519,9 @@ def save_multi(message):
     uid = message.from_user.id
     state = admin_state.get(uid)
     if state == "multi_add_single":
-        time.sleep(0.1)
+        time.sleep(00.1)
     elif state == "multi_add_batch":
-        time.sleep(0.7)
+        time.sleep(1.0)
     content_type = message.content_type
     item = {"type": content_type, "order": 1}
     if content_type == "video":
@@ -927,48 +928,56 @@ def back_to_required_menu(call):
 # ==========================
 @bot.chat_join_request_handler()
 def handle_join_request(update: telebot.types.ChatJoinRequest):
-    """Kanalga a'zo bo'lish so'rovini avtomatik qabul qilish"""
+    """Kanalga a'zo bo'lish so'rovini bazaga yozib qo'yish (tasdiqlamasdan)"""
     try:
-        # Kanal ID sini olish
         chat_id = update.chat.id
         user_id = update.from_user.id
 
         # Bu kanal majburiy kanallar ro'yxatida bormi?
         channel = required_channels_collection.find_one({"channel_id": chat_id})
         if channel:
-            # Zayavkani tasdiqlash
-            bot.approve_chat_join_request(chat_id, user_id)
-            print(f"✅ Zayavka qabul qilindi: user {user_id} -> kanal {chat_id}")
+            # Zayavkani bazaga saqlaymiz, lekin tasdiqlamaymiz!
+            join_requests_collection.update_one(
+                {"user_id": user_id, "channel_id": chat_id},
+                {"$set": {"timestamp": time.time()}},
+                upsert=True
+            )
+            print(f"📝 Zayavka qayd etildi: user {user_id} -> kanal {chat_id}")
 
-            # Foydalanuvchini bazaga saqlash (ixtiyoriy)
+            # Foydalanuvchini umumiy bazaga qo'shish (ixtiyoriy)
             users_collection.update_one(
                 {"user_id": user_id},
                 {"$set": {"user_id": user_id}},
                 upsert=True
             )
-        else:
-            # Agar kanal bizning ro'yxatimizda bo'lmasa, hech narsa qilmaymiz
-            pass
     except Exception as e:
-        print(f"❌ Zayavka qabul qilishda xatolik: {e}")
-
+        print(f"❌ Zayavkani qayd etishda xatolik: {e}")
+        
 # ==========================
 #   MAJBURIY OBUNA TEKSHIRISH
 # ==========================
 def check_required_subs(user_id):
     required = list(required_channels_collection.find({}))
     for ch in required:
+        channel_id = ch["channel_id"]
         try:
-            member = bot.get_chat_member(ch["channel_id"], user_id)
-            # Agar foydalanuvchi kanal a'zosi bo'lsa (zayavka qabul qilingan bo'lsa)
+            # 1. Avval a'zolikni tekshiramiz
+            member = bot.get_chat_member(channel_id, user_id)
             if member.status in ["member", "administrator", "creator", "restricted"]:
-                continue
-            else:
-                return False
+                continue  # a'zo, keyingi kanalga o'tamiz
         except:
-            return False
-    return True
+            pass  # a'zo emas yoki xatolik
 
+        # 2. A'zo bo'lmasa, zayavka yuborganligini tekshiramiz
+        join_req = join_requests_collection.find_one({"user_id": user_id, "channel_id": channel_id})
+        if join_req:
+            continue  # zayavka yuborgan, obuna bo'lgan hisoblaymiz
+
+        # 3. Hech biri bo'lmasa, obuna bo'lmagan
+        return False
+
+    return True
+    
 def check_required_bots(user_id):
     required = list(required_bots_collection.find({}))
     for bot_info in required:
