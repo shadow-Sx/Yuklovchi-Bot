@@ -961,19 +961,21 @@ def check_required_subs(user_id):
     for ch in required:
         channel_id = ch["channel_id"]
         try:
-            # 1. Avval a'zolikni tekshiramiz
             member = bot.get_chat_member(channel_id, user_id)
+            # Agar foydalanuvchi a'zo bo'lsa yoki admin/creator bo'lsa
             if member.status in ["member", "administrator", "creator", "restricted"]:
-                continue  # a'zo, keyingi kanalga o'tamiz
-        except:
-            pass  # a'zo emas yoki xatolik
+                continue
+        except Exception as e:
+            # Agar xatolik bo'lsa (masalan, bot admin emas), foydalanuvchini obuna bo'lmagan deb hisoblaymiz
+            print(f"Tekshirishda xatolik: {e}")
+            return False
 
-        # 2. A'zo bo'lmasa, zayavka yuborganligini tekshiramiz
+        # Endi a'zo bo'lmagan holat uchun zayavkani tekshiramiz
         join_req = join_requests_collection.find_one({"user_id": user_id, "channel_id": channel_id})
         if join_req:
             continue  # zayavka yuborgan, obuna bo'lgan hisoblaymiz
 
-        # 3. Hech biri bo'lmasa, obuna bo'lmagan
+        # Agar na a'zo, na zayavka bo'lsa
         return False
 
     return True
