@@ -999,7 +999,7 @@ def get_required_keyboard(user_id, code):
     kb = InlineKeyboardMarkup(row_width=1)
     for btn in buttons:
         kb.add(btn)
-    kb.add(InlineKeyboardButton("✔️ Tekshirish", url=f"https://t.me/{BOT_USERNAME}?start={code}"))
+    kb.add(InlineKeyboardButton("Tekshirish ♻️", url=f"https://t.me/{BOT_USERNAME}?start={code}"))
     return kb
 
 def get_required_bots_keyboard(user_id, code):
