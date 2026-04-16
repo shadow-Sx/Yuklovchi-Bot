@@ -13,9 +13,8 @@ from telebot.types import (
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 
-# Import functions (faqat video_edit_state import qilinadi)
+# Import functions (faqat premium reaksiya uchun)
 import functions
-from functions import video_edit_state
 
 # ==========================
 #   TOKEN & SETTINGS
@@ -62,7 +61,7 @@ def webhook():
 def keep_alive():
     while True:
         try:
-            requests.get("https://yuklovchi-bot-80ui.onrender.com")
+            requests.get("https://yuklovchi-bot-5kne.onrender.com")
         except:
             pass
         time.sleep(60)
@@ -75,7 +74,6 @@ def generate_code(length=12):
 admin_state = {}
 admin_data = {}
 add_button_state = {}
-screenshot_state = {}
 broadcast_state = {}
 
 # ==========================
@@ -90,9 +88,8 @@ def admin_panel():
 
 def second_menu():
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row(KeyboardButton("Referal"), KeyboardButton("Video Edit"))
-    markup.row(KeyboardButton("Cantnetga tugma qoshish"), KeyboardButton("Skrinshot"))
-    markup.row(KeyboardButton("1-Bo'lim"))
+    markup.row(KeyboardButton("Referal"), KeyboardButton("Zayavka sozlamari"))
+    markup.row(KeyboardButton("Cantnetga tugma qoshish"), KeyboardButton("1-Bo'lim"))
     return markup
 
 def required_menu():
@@ -128,8 +125,8 @@ def admin_start(message):
 
 @bot.message_handler(func=lambda m: m.from_user.id == ADMIN_ID and m.text in [
     "Cantent Qo'shish", "Majburi Obuna", "Habar Yuborish", "Referal",
-    "Rasm Sozlash", "Video Edit", "🔙 Chiqish",
-    "2-Bo'lim", "1-Bo'lim", "Cantnetga tugma qoshish", "Skrinshot"
+    "Rasm Sozlash", "🔙 Chiqish", "2-Bo'lim", "1-Bo'lim",
+    "Cantnetga tugma qoshish", "Zayavka sozlamari"
 ])
 def admin_buttons(message):
     uid = message.from_user.id
@@ -164,9 +161,6 @@ def admin_buttons(message):
         kb.add(InlineKeyboardButton("🗑 Rasmni o'chirish", callback_data="delete_main_image"))
         bot.reply_to(message, "🖼 Majburiy obuna xabari uchun rasm yuboring:", reply_markup=kb)
 
-    elif text == "Video Edit":
-        functions.start_video_edit(bot, message)
-
     elif text == "2-Bo'lim":
         bot.send_message(uid, "🔽 2-Bo'lim menyusi:", reply_markup=second_menu())
 
@@ -179,16 +173,14 @@ def admin_buttons(message):
             "📎 Iltimos, kontent havolasini yoki start kodini yuboring:\n\n"
             f"Masalan: <code>https://t.me/{BOT_USERNAME}?start=abc123</code>\nyoki <code>abc123</code>")
 
-    elif text == "Skrinshot":
-        screenshot_state[uid] = {"step": "waiting_video"}
-        bot.reply_to(message, "📸 Video yoki faylni yuboring (maks 10 ta skrinshot olinadi).")
+    elif text == "Zayavka sozlamari":
+        bot.reply_to(message, "⚙️ Zayavka sozlamari hozircha mavjud emas. Bot avtomatik ravishda barcha zayavkalarni qabul qiladi.")
 
     elif text == "🔙 Chiqish":
         admin_state.pop(uid, None)
         admin_data.pop(uid, None)
         add_button_state.pop(uid, None)
         broadcast_state.pop(uid, None)
-        screenshot_state.pop(uid, None)
         bot.send_message(uid, "<b>Admin paneldan chiqdingiz.</b>",
                          reply_markup=telebot.types.ReplyKeyboardRemove())
 
@@ -208,9 +200,6 @@ def delete_main_image(call):
 def handle_photo(message):
     uid = message.from_user.id
     if uid != ADMIN_ID:
-        return
-    if video_edit_state.get(uid, {}).get("step") == "waiting_image":
-        functions.handle_image_upload(bot, message)
         return
     if admin_state.get(uid) == "set_main_image":
         save_main_image(message)
@@ -934,24 +923,47 @@ def back_to_required_menu(call):
                           reply_markup=required_menu())
 
 # ==========================
-#   SKRINSHOT (oddiy stub)
+#   ZAYAVKA QABUL QILISH (YANGI)
 # ==========================
-@bot.message_handler(content_types=['video', 'document'],
-                    func=lambda m: screenshot_state.get(m.from_user.id, {}).get("step") == "waiting_video")
-def screenshot_receive_video(message):
-    uid = message.from_user.id
-    bot.reply_to(message, "📸 Skrinshot funksiyasi hozircha ishlamaydi. Keyinroq qo'shiladi.")
-    screenshot_state.pop(uid, None)
+@bot.chat_join_request_handler()
+def handle_join_request(update: telebot.types.ChatJoinRequest):
+    """Kanalga a'zo bo'lish so'rovini avtomatik qabul qilish"""
+    try:
+        # Kanal ID sini olish
+        chat_id = update.chat.id
+        user_id = update.from_user.id
+
+        # Bu kanal majburiy kanallar ro'yxatida bormi?
+        channel = required_channels_collection.find_one({"channel_id": chat_id})
+        if channel:
+            # Zayavkani tasdiqlash
+            bot.approve_chat_join_request(chat_id, user_id)
+            print(f"✅ Zayavka qabul qilindi: user {user_id} -> kanal {chat_id}")
+
+            # Foydalanuvchini bazaga saqlash (ixtiyoriy)
+            users_collection.update_one(
+                {"user_id": user_id},
+                {"$set": {"user_id": user_id}},
+                upsert=True
+            )
+        else:
+            # Agar kanal bizning ro'yxatimizda bo'lmasa, hech narsa qilmaymiz
+            pass
+    except Exception as e:
+        print(f"❌ Zayavka qabul qilishda xatolik: {e}")
 
 # ==========================
-#   MAJBURIY OBUNA TEKSHIRISH (oldingi kod)
+#   MAJBURIY OBUNA TEKSHIRISH
 # ==========================
 def check_required_subs(user_id):
     required = list(required_channels_collection.find({}))
     for ch in required:
         try:
             member = bot.get_chat_member(ch["channel_id"], user_id)
-            if member.status not in ["member", "administrator", "creator", "restricted"]:
+            # Agar foydalanuvchi kanal a'zosi bo'lsa (zayavka qabul qilingan bo'lsa)
+            if member.status in ["member", "administrator", "creator", "restricted"]:
+                continue
+            else:
                 return False
         except:
             return False
@@ -1201,16 +1213,6 @@ def callback(call):
             reply_markup=markup, parse_mode="HTML"
         )
         functions.add_premium_reaction(bot, call.message.chat.id, call.message.message_id, "👨‍💻")
-    if data.startswith("video_edit_"):
-        functions.video_edit_callback(bot, call)
-
-# ==========================
-#   MESSAGE HANDLERS (faqat video va photo)
-# ==========================
-@bot.message_handler(content_types=['video'])
-def handle_video(message):
-    if message.from_user.id == ADMIN_ID:
-        functions.handle_video_upload(bot, message, BOT_USERNAME)
 
 # ==========================
 #   RUN SERVER
