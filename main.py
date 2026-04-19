@@ -1081,7 +1081,7 @@ def send_content(chat_id, items, is_batch=False):
             if msg:
                 schedule_delete(chat_id, msg.message_id, 300)
         warn = bot.send_message(chat_id,
-            "<b>⚠️ ESLATMA ⚠️\n\n<blockquote>❗ Ushbu habarlar 5 daqiqadan so'ng o'chiriladi. "
+            "<b>⚠️ ESLATMA ⚠️\n<blockquote>❗ Ushbu habarlar 5 daqiqadan so'ng o'chiriladi. "
             "Tezda saqlash joyingizga saqlab oling!</blockquote></b>")
         schedule_delete(chat_id, warn.message_id, 300)
         functions.add_premium_reaction(bot, warn.chat.id, warn.message_id, "⚠️")
@@ -1107,7 +1107,7 @@ def send_content(chat_id, items, is_batch=False):
             if msg:
                 schedule_delete(chat_id, msg.message_id, 300)
                 warn = bot.send_message(chat_id,
-                    "<b>⚠️ ESLATMA ⚠️\n\n<blockquote>❗ Ushbu habar 5 daqiqadan so'ng o'chiriladi. "
+                    "<b>⚠️ ESLATMA ⚠️\n<blockquote>❗ Ushbu habar 5 daqiqadan so'ng o'chiriladi. "
                     "Tezda saqlash joyingizga saqlab oling!</blockquote></b>")
                 schedule_delete(chat_id, warn.message_id, 300)
                 functions.add_premium_reaction(bot, warn.chat.id, warn.message_id, "⚠️")
