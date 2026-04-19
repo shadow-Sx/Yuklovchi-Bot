@@ -117,7 +117,7 @@ def required_bots_menu():
 @bot.message_handler(commands=['admin'])
 def admin_start(message):
     if message.from_user.id != ADMIN_ID:
-        bot.reply_to(message, "❌ Siz admin emassiz!")
+        bot.reply_to(message, "")
         return
     users_collection.update_one({"user_id": message.from_user.id},
                                 {"$set": {"user_id": message.from_user.id}}, upsert=True)
@@ -1037,7 +1037,7 @@ def get_required_bots_keyboard(user_id, code):
     kb = InlineKeyboardMarkup(row_width=1)
     for btn in buttons:
         kb.add(btn)
-    kb.add(InlineKeyboardButton("✔️ Tekshirish", url=f"https://t.me/{BOT_USERNAME}?start={code}"))
+    kb.add(InlineKeyboardButton("Tekshirish ♻️", url=f"https://t.me/{BOT_USERNAME}?start={code}"))
     return kb
 
 def schedule_delete(chat_id, message_id, delay=300):
@@ -1081,8 +1081,8 @@ def send_content(chat_id, items, is_batch=False):
             if msg:
                 schedule_delete(chat_id, msg.message_id, 300)
         warn = bot.send_message(chat_id,
-            "<b>⚠️ ESLATMA ⚠️\n\n❗ Ushbu habarlar 5 daqiqadan so'ng o'chiriladi. "
-            "Tezda saqlash joyingizga saqlab oling!</b>")
+            "<b>⚠️ ESLATMA ⚠️\n\n<blockquote>❗ Ushbu habarlar 5 daqiqadan so'ng o'chiriladi. "
+            "Tezda saqlash joyingizga saqlab oling!</blockquote></b>")
         schedule_delete(chat_id, warn.message_id, 300)
         functions.add_premium_reaction(bot, warn.chat.id, warn.message_id, "⚠️")
     else:
@@ -1107,8 +1107,8 @@ def send_content(chat_id, items, is_batch=False):
             if msg:
                 schedule_delete(chat_id, msg.message_id, 300)
                 warn = bot.send_message(chat_id,
-                    "<b>⚠️ ESLATMA ⚠️\n\n❗ Ushbu habar 5 daqiqadan so'ng o'chiriladi. "
-                    "Tezda saqlash joyingizga saqlab oling!</b>")
+                    "<b>⚠️ ESLATMA ⚠️\n\n<blockquote>❗ Ushbu habar 5 daqiqadan so'ng o'chiriladi. "
+                    "Tezda saqlash joyingizga saqlab oling!</blockquote></b>")
                 schedule_delete(chat_id, warn.message_id, 300)
                 functions.add_premium_reaction(bot, warn.chat.id, warn.message_id, "⚠️")
 
@@ -1150,7 +1150,7 @@ def start(message):
 
     items = list(contents.find({"code": code}).sort("order", 1))
     if not items:
-        sent = bot.send_message(message.chat.id, "❌ Kontent topilmadi.")
+        sent = bot.send_message(message.chat.id, "")
         functions.add_premium_reaction(bot, sent.chat.id, sent.message_id, "❌")
         return
 
