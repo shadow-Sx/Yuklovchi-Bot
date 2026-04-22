@@ -340,7 +340,7 @@ def set_ad_threshold(message):
     except:
         bot.reply_to(message, "❌ Iltimos, faqat raqam kiriting!")
 
-# =================== MAJBURIY KANAL QO'SHISH (order qo'shilgan) ===================
+# =================== MAJBURIY KANAL QO'SHISH ===================
 @bot.callback_query_handler(func=lambda c: c.data == "req_add")
 def start_required_add(call):
     uid = call.from_user.id
@@ -799,7 +799,6 @@ def stop(message):
             admin_state[uid] = None
             admin_data[uid] = {}
             return
-        # Havola turini so'rash
         custom_code_state[uid] = {"batch": batch}
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("Random", callback_data="code_random"),
@@ -839,7 +838,6 @@ def custom_code_entered(message):
     uid = message.from_user.id
     raw = message.text.strip()
     code = raw.replace(" ", "_")
-    # kod mavjudligini tekshirish
     if contents.count_documents({"code": code}) > 0:
         bot.reply_to(message, "❌ Bu kod allaqachon band! Boshqa nom kiriting.")
         return
@@ -948,7 +946,7 @@ def broadcast_final_confirm(call):
             if data["mode"] == "forward":
                 bot.copy_message(u["user_id"], msg.chat.id, msg.message_id)
             else:
-                bot.copy_message(u["user_id"], msg.chat.id, msg.message_id)  # yoki kontent turiga qarab
+                bot.copy_message(u["user_id"], msg.chat.id, msg.message_id)
             success += 1
             time.sleep(0.05)
         except: fail += 1
@@ -1053,12 +1051,14 @@ def send_content(chat_id, items, is_batch=False):
     warn = bot.send_message(chat_id, "<b>⚠️ ESLATMA ⚠️\n\n❗ Ushbu habarlar 5 daqiqadan so'ng o'chiriladi.</b>")
     schedule_delete(chat_id, warn.message_id, 300)
 
-    # Reklama
+    # Har bir foydalanuvchi uchun alohida reklama hisoblagichi
     user = users_collection.find_one({"user_id": chat_id})
-    count = user.get("content_count", 0) + len(items)
+    count = user.get("content_count", 0) + (len(items) if is_batch else 1)
     users_collection.update_one({"user_id": chat_id}, {"$set": {"content_count": count}})
-    threshold = bot_settings_collection.find_one({"setting": "ad_threshold"})
-    threshold = threshold["value"] if threshold else 10
+
+    threshold_doc = bot_settings_collection.find_one({"setting": "ad_threshold"})
+    threshold = threshold_doc["value"] if threshold_doc else 10
+
     if count >= threshold:
         send_ad(chat_id)
         users_collection.update_one({"user_id": chat_id}, {"$set": {"content_count": 0}})
@@ -1069,6 +1069,7 @@ def start(message):
     uid = message.from_user.id
     users_collection.update_one({"user_id": uid}, {"$set": {"user_id": uid}}, upsert=True)
     args = message.text.split()
+    
     if len(args) == 1:
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("📝 Bot Haqida", callback_data="about"),
@@ -1076,6 +1077,7 @@ def start(message):
         sent = bot.reply_to(message, "<b>Bu bot orqali kanaldagi animelarni yuklab olishingiz mumkin.\n\n❗️Botga habar yozmang❗️</b>", reply_markup=markup)
         add_premium_reaction(bot, sent.chat.id, sent.message_id, "🎉")
         return
+
     code = args[1]
     if code.startswith("ref_"):
         ref_name = code[4:]
@@ -1094,26 +1096,41 @@ def start(message):
         add_premium_reaction(bot, sent.chat.id, sent.message_id, "❌")
         return
 
+    # Majburiy obuna tekshiruvi
     if not check_required_subs(uid):
         settings = bot_settings_collection.find_one({"setting": "main_image"})
         kb = get_required_keyboard(uid, code)
+        
+        # Eski xabarni o'chirish
+        user = users_collection.find_one({"user_id": uid})
+        if user and user.get("last_required_msg_id"):
+            try:
+                bot.delete_message(message.chat.id, user["last_required_msg_id"])
+            except: pass
+        
         sent = None
         if settings and settings.get("image_id"):
             sent = bot.send_photo(message.chat.id, settings["image_id"],
-                                  caption="📢 <b>Animeni yuklab olish uchun quyidagi kanallarga obuna bo'ling:</b>", reply_markup=kb)
+                                  caption="📢 <b>Animeni yuklab olish uchun quyidagi kanallarga obuna bo'ling:</b>",
+                                  reply_markup=kb)
         else:
-            sent = bot.send_message(message.chat.id, "📢 <b>Animeni yuklab olish uchun quyidagi kanallarga obuna bo'ling:</b>", reply_markup=kb)
+            sent = bot.send_message(message.chat.id,
+                                    "📢 <b>Animeni yuklab olish uchun quyidagi kanallarga obuna bo'ling:</b>",
+                                    reply_markup=kb)
         users_collection.update_one({"user_id": uid}, {"$set": {"last_required_msg_id": sent.message_id}})
         add_premium_reaction(bot, sent.chat.id, sent.message_id, "🔔")
         return
 
+    # Obuna bo'lgan bo'lsa, eski xabarni o'chirish
     user = users_collection.find_one({"user_id": uid})
     if user and user.get("last_required_msg_id"):
-        try: bot.delete_message(message.chat.id, user["last_required_msg_id"])
+        try:
+            bot.delete_message(message.chat.id, user["last_required_msg_id"])
         except: pass
         users_collection.update_one({"user_id": uid}, {"$unset": {"last_required_msg_id": ""}})
 
-    send_content(message.chat.id, items, len(items) > 1)
+    is_batch = len(items) > 1
+    send_content(message.chat.id, items, is_batch)
 
 # =================== CALLBACK ===================
 @bot.callback_query_handler(func=lambda call: True)
