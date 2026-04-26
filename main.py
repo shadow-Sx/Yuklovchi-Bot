@@ -112,7 +112,7 @@ def ad_menu():
 @bot.message_handler(commands=['admin'])
 def admin_start(message):
     if message.from_user.id != ADMIN_ID:
-        bot.reply_to(message, "❌ Siz admin emassiz!")
+        bot.reply_to(message, "")
         return
     users_collection.update_one({"user_id": message.from_user.id},
                                 {"$set": {"user_id": message.from_user.id}}, upsert=True)
