@@ -1144,7 +1144,7 @@ def callback(call):
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("👨‍💻 Yaratuvchi", callback_data="creator"),
                    InlineKeyboardButton("🔒 Yopish", callback_data=f"close:{call.message.message_id}"))
-        bot.edit_message_text("<b>Botni ishlatishni bilmaganlar uchun!/n/n❏ Botni ishlatish qo'llanmasi:</b>\n<b>1. Kanallarga obuna boling!</b>\n<b>2. Tekshirish Tugmasini bosing ✅</b>\n<b>3. Kanaldagi anime post past qismidagi yuklab olish tugmasini bosing</b>\n\n<b>👨‍💻 Yaratuvchi @ShadowUzDev</b>", call.message.chat.id, call.message.message_id, reply_markup=markup)
+        bot.edit_message_text("<b>Botni ishlatishni bilmaganlar uchun!\n\n❏ Botni ishlatish qo'llanmasi:</b>\n<b>1. Kanallarga obuna boling!</b>\n<b>2. Tekshirish Tugmasini bosing ✅</b>\n<b>3. Kanaldagi anime post past qismidagi yuklab olish tugmasini bosing</b>\n\n<b>👨‍💻 Yaratuvchi @ShadowUzDev</b>", call.message.chat.id, call.message.message_id, reply_markup=markup)
     if data == "creator":
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("📝 Bot Haqida", callback_data="about"),
