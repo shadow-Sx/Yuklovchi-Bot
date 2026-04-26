@@ -1048,7 +1048,7 @@ def send_content(chat_id, items, is_batch=False):
             elif item["type"] == "video_note": msg = bot.send_video_note(chat_id, item["file_id"], reply_markup=markup)
             if msg: schedule_delete(chat_id, msg.message_id, 300)
         except: pass
-    warn = bot.send_message(chat_id, "<b>⚠️ ESLATMA ⚠️\n<blockquote>❗ Ushbu habarlar <a href='https://t.me/AniLinksBot/Xbot_Muallif'>Ba'zi sabablarga kora</a> 5 daqiqadan so'ng o'chiriladi.</blockquote></b>")
+    warn = bot.send_message(chat_id, "<b>⚠️ ESLATMA ⚠️\n<blockquote>❗ Ushbu habarlar Ba'zi sabablarga kora 5 daqiqadan so'ng o'chiriladi.</blockquote></b>")
     schedule_delete(chat_id, warn.message_id, 300)
 
     # Har bir foydalanuvchi uchun alohida reklama hisoblagichi
