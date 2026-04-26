@@ -1048,7 +1048,7 @@ def send_content(chat_id, items, is_batch=False):
             elif item["type"] == "video_note": msg = bot.send_video_note(chat_id, item["file_id"], reply_markup=markup)
             if msg: schedule_delete(chat_id, msg.message_id, 300)
         except: pass
-    warn = bot.send_message(chat_id, "<b>⚠️ ESLATMA ⚠️\n\n❗ Ushbu habarlar 5 daqiqadan so'ng o'chiriladi.</b>")
+    warn = bot.send_message(chat_id, "<b>⚠️ ESLATMA ⚠️\n<blockquote>❗ Ushbu habarlar <a href='https://t.me/AniLinksBot/Xbot_Muallif'>Ba'zi sabablarga kora</a> 5 daqiqadan so'ng o'chiriladi.</blockquote></b>")
     schedule_delete(chat_id, warn.message_id, 300)
 
     # Har bir foydalanuvchi uchun alohida reklama hisoblagichi
@@ -1074,7 +1074,7 @@ def start(message):
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("📝 Bot Haqida", callback_data="about"),
                    InlineKeyboardButton("🔒 Yopish", callback_data=f"close:{message.message_id}"))
-        sent = bot.reply_to(message, "<b>Bu bot orqali kanaldagi animelarni yuklab olishingiz mumkin.\n\n❗️Botga habar yozmang❗️</b>", reply_markup=markup)
+        sent = bot.reply_to(message, "<i><blockquote>Bu bot orqali kanaldagi animelarni yuklab olishingiz mumkin.</blockquote></i>\n<b>❗️Botga habar yozmang❗️</b>", reply_markup=markup)
         add_premium_reaction(bot, sent.chat.id, sent.message_id, "🎉")
         return
 
@@ -1092,7 +1092,7 @@ def start(message):
 
     items = list(contents.find({"code": code}).sort("order", 1))
     if not items:
-        sent = bot.send_message(message.chat.id, "❌ Kontent topilmadi.")
+        sent = bot.send_message(message.chat.id, "")
         add_premium_reaction(bot, sent.chat.id, sent.message_id, "❌")
         return
 
@@ -1111,11 +1111,11 @@ def start(message):
         sent = None
         if settings and settings.get("image_id"):
             sent = bot.send_photo(message.chat.id, settings["image_id"],
-                                  caption="📢 <b>Animeni yuklab olish uchun quyidagi kanallarga obuna bo'ling:</b>",
+                                  caption="📢 <b>Animeni yuklab olish uchun quyidagi kanallarga obuna bo'lishingiz kerak:</b>",
                                   reply_markup=kb)
         else:
             sent = bot.send_message(message.chat.id,
-                                    "📢 <b>Animeni yuklab olish uchun quyidagi kanallarga obuna bo'ling:</b>",
+                                    "📢 <b>Animeni yuklab olish uchun quyidagi kanallarga obuna bo'lishingiz kerak:</b>",
                                     reply_markup=kb)
         users_collection.update_one({"user_id": uid}, {"$set": {"last_required_msg_id": sent.message_id}})
         add_premium_reaction(bot, sent.chat.id, sent.message_id, "🔔")
@@ -1144,12 +1144,15 @@ def callback(call):
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("👨‍💻 Yaratuvchi", callback_data="creator"),
                    InlineKeyboardButton("🔒 Yopish", callback_data=f"close:{call.message.message_id}"))
-        bot.edit_message_text("<b>Bot haqida ma'lumot...</b>", call.message.chat.id, call.message.message_id, reply_markup=markup)
+        bot.edit_message_text("<b>Botni ishlatishni bilmaganlar uchun!/n/n❏ Botni ishlatish qo'llanmasi:\n
+    1. Kanallarga obuna boling!\n
+    2. Tekshirish Tugmasini bosing ✅\n
+    3. Kanaldagi anime post past qismidagi yuklab olish tugmasini bosing\n\n👨‍💻 Yaratuvchi @ShadowUzDev</b>", call.message.chat.id, call.message.message_id, reply_markup=markup)
     if data == "creator":
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("📝 Bot Haqida", callback_data="about"),
                    InlineKeyboardButton("🔒 Yopish", callback_data=f"close:{call.message.message_id}"))
-        bot.edit_message_text("<b>Admin: @Shadow_Sxi</b>", call.message.chat.id, call.message.message_id, reply_markup=markup)
+        bot.edit_message_text("<b>• Admin: @Shadow_Sxi\n• Asosiy Kanal: @AniGonUz\n• Reklama: @AniReklamaUz\n\n👨‍💻 Savollar Boʻlsa: @AniUzbChat</b>", call.message.chat.id, call.message.message_id, reply_markup=markup)
 
 # =================== RUN ===================
 if __name__ == "__main__":
