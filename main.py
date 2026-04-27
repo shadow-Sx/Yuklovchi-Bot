@@ -12,7 +12,8 @@ from telebot.types import (
 )
 from pymongo import MongoClient
 from bson.objectid import ObjectId
-import functions
+
+import functions  # faqat add_premium_reaction va set_bot_username uchun
 
 # ==================== TOKEN & SETTINGS ====================
 TOKEN = os.getenv("BOT_TOKEN")
@@ -36,7 +37,7 @@ user_referrals_collection = db["user_referrals"]
 bot_settings_collection = db["bot_settings"]
 required_bots_collection = db["required_bots"]
 join_requests_collection = db["join_requests"]
-ads_collection = db["ads"]
+ads_collection = db["ads"]  # reklama uchun
 
 # ==================== FLASK SERVER ====================
 app = Flask(__name__)
@@ -916,12 +917,14 @@ def check_required_subs(user_id):
     required = list(required_channels_collection.find({}))
     for ch in required:
         channel_id = ch["channel_id"]
+        # haqiqiy a'zolikni tekshiramiz
         try:
             member = bot.get_chat_member(channel_id, user_id)
             if member.status in ["member", "administrator", "creator", "restricted"]:
                 continue
         except:
             pass
+        # zayavka yuborganligini tekshiramiz
         if join_requests_collection.find_one({"user_id": user_id, "channel_id": channel_id}):
             continue
         return False
@@ -942,6 +945,7 @@ def get_required_keyboard(user_id, code):
     required = list(required_channels_collection.find({}))
     optional = list(optional_channels_collection.find({}))
 
+    # faqat obuna bo'lmagan va zayavka yubormagan majburiy kanallarni yig'amiz
     unsubscribed = []
     for ch in required:
         channel_id = ch["channel_id"]
@@ -953,19 +957,26 @@ def get_required_keyboard(user_id, code):
         except:
             pass
         if not is_member:
-            if not join_requests_collection.find_one({"user_id": user_id, "channel_id": channel_id}):
-                unsubscribed.append(ch)
+            # zayavka yuborgan bo'lsa, o'tkazib yuboramiz
+            if join_requests_collection.find_one({"user_id": user_id, "channel_id": channel_id}):
+                continue
+            unsubscribed.append(ch)
 
+    # kanallarni nomiga qarab saralaymiz (avto nomlanganlar 1-Kanal, 2-Kanal...)
     unsubscribed.sort(key=lambda x: x.get("name", ""))
+
+    # yangi raqamlar bilan tugmalarni yasaymiz
     kb_buttons = []
     for idx, ch in enumerate(unsubscribed, start=1):
         display_name = f"{idx}-Kanal"
         kb_buttons.append(InlineKeyboardButton(display_name, url=ch["url"]))
 
+    # ixtiyoriy kanallarni qo'shamiz
     for ch in optional:
         kb_buttons.append(InlineKeyboardButton(ch["name"], url=ch["url"]))
 
     random.shuffle(kb_buttons)
+
     kb = InlineKeyboardMarkup(row_width=1)
     for btn in kb_buttons:
         kb.add(btn)
