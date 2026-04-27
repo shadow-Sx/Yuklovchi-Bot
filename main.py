@@ -977,11 +977,30 @@ def handle_join_request(update: telebot.types.ChatJoinRequest):
 
 # =================== MAJBURIY OBUNA ===================
 
+def check_required_subs(user_id):
+    required = list(required_channels_collection.find({}))
+    for ch in required:
+        channel_id = ch["channel_id"]
+        # 1. A'zolikni tekshirish
+        try:
+            member = bot.get_chat_member(channel_id, user_id)
+            if member.status in ["member", "administrator", "creator", "restricted"]:
+                continue
+        except:
+            pass
+        # 2. Zayavka yuborganligini tekshirish
+        join_req = join_requests_collection.find_one({"user_id": user_id, "channel_id": channel_id})
+        if join_req:
+            continue
+        # 3. Hech biri bo'lmasa, obuna bo'lmagan
+        return False
+    return True
+
 def get_required_keyboard(user_id, code):
     required = list(required_channels_collection.find({}))
     optional = list(optional_channels_collection.find({}))
 
-    # Avval obuna bo'lmagan majburiy kanallarni yig'amiz (tartiblangan holda)
+    # Obuna bo'lmagan majburiy kanallarni yig'ish
     unsubscribed = []
     for ch in required:
         channel_id = ch["channel_id"]
@@ -993,25 +1012,22 @@ def get_required_keyboard(user_id, code):
         except:
             pass
         if not is_member:
-            # Zayavka tekshiruvi
             join_req = join_requests_collection.find_one({"user_id": user_id, "channel_id": channel_id})
-            if join_req:
-                continue  # zayavka yuborgan -> o'tkazib yuboramiz
-            unsubscribed.append(ch)
+            if not join_req:   # zayavka bo'lmasa, qo'shamiz
+                unsubscribed.append(ch)
 
-    # Kanallarni nomiga qarab saralaymiz (1-Kanal, 2-Kanal, ... kabi)
+    # Nom bo'yicha tartiblash
     unsubscribed.sort(key=lambda x: x.get("name", ""))
 
-    # Tugmalarni yangi raqamlar bilan yasaymiz
+    # Yangi raqamlar bilan tugmalar
     kb_buttons = []
     for idx, ch in enumerate(unsubscribed, start=1):
         display_name = f"{idx}-Kanal"
         kb_buttons.append(InlineKeyboardButton(display_name, url=ch["url"]))
 
-    # Ixtiyoriy kanallarni qo'shamiz (agar hech bo'lmaganda bitta majburiy kanalga obuna bo'lmasa)
-    if unsubscribed:  # faqat obuna bo'lmaganlar bo'lsa
-        for ch in optional:
-            kb_buttons.append(InlineKeyboardButton(ch["name"], url=ch["url"]))
+    # Ixtiyoriy kanallarni qo'shish (har doim, majburiy kanal bo'lmasa ham)
+    for ch in optional:
+        kb_buttons.append(InlineKeyboardButton(ch["name"], url=ch["url"]))
 
     random.shuffle(kb_buttons)
 
@@ -1076,16 +1092,18 @@ def send_content(chat_id, items, is_batch=False):
 # =================== /start ===================
 @bot.message_handler(commands=['start'])
 def start(message):
-    uid = message.from_user.id
-    users_collection.update_one({"user_id": uid}, {"$set": {"user_id": uid}}, upsert=True)
-    args = message.text.split()
-    
-    if len(args) == 1:
-        markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("📝 Bot Haqida", callback_data="about"),
-                   InlineKeyboardButton("🔒 Yopish", callback_data=f"close:{message.message_id}"))
-        sent = bot.reply_to(message, "<i><blockquote>Bu bot orqali kanaldagi animelarni yuklab olishingiz mumkin.</blockquote></i>\n<b>❗️Botga habar yozmang❗️</b>", reply_markup=markup)
-        add_premium_reaction(bot, sent.chat.id, sent.message_id, "🎉")
+    # ... kodning yuqori qismi ...
+    if not check_required_subs(uid):
+        settings = bot_settings_collection.find_one({"setting": "main_image"})
+        kb = get_required_keyboard(uid, code)
+        if settings and settings.get("image_id"):
+            sent = bot.send_photo(message.chat.id, settings["image_id"],
+                caption="📢 <b>Animeni yuklab olish uchun quyidagi kanallarga obuna bo'ling:</b>",
+                reply_markup=kb)
+        else:
+            sent = bot.send_message(message.chat.id,
+                "📢 <b>Animeni yuklab olish uchun quyidagi kanallarga obuna bo'ling:</b>",
+                reply_markup=kb)
         return
 
     code = args[1]
