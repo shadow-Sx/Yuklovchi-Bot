@@ -976,38 +976,48 @@ def handle_join_request(update: telebot.types.ChatJoinRequest):
         print(f"Zayavka xatolik: {e}")
 
 # =================== MAJBURIY OBUNA ===================
-def check_required_subs(user_id):
-    required = list(required_channels_collection.find({}))
-    for ch in required:
-        channel_id = ch["channel_id"]
-        try:
-            member = bot.get_chat_member(channel_id, user_id)
-            if member.status in ["member", "administrator", "creator", "restricted"]: continue
-        except: pass
-        if join_requests_collection.find_one({"user_id": user_id, "channel_id": channel_id}): continue
-        return False
-    return True
 
 def get_required_keyboard(user_id, code):
-    required = list(required_channels_collection.find({}).sort("order", 1))
-    buttons = []
+    required = list(required_channels_collection.find({}))
+    optional = list(optional_channels_collection.find({}))
+
+    # Avval obuna bo'lmagan majburiy kanallarni yig'amiz (tartiblangan holda)
+    unsubscribed = []
     for ch in required:
         channel_id = ch["channel_id"]
         is_member = False
         try:
             member = bot.get_chat_member(channel_id, user_id)
-            if member.status in ["member", "administrator", "creator", "restricted"]: is_member = True
-        except: pass
-        if not is_member and join_requests_collection.find_one({"user_id": user_id, "channel_id": channel_id}):
-            is_member = True
+            if member.status in ["member", "administrator", "creator", "restricted"]:
+                is_member = True
+        except:
+            pass
         if not is_member:
-            buttons.append(InlineKeyboardButton(ch["name"], url=ch["url"]))
-    if not check_required_subs(user_id):
-        for ch in optional_channels_collection.find({}):
-            buttons.append(InlineKeyboardButton(ch["name"], url=ch["url"]))
-    random.shuffle(buttons)
+            # Zayavka tekshiruvi
+            join_req = join_requests_collection.find_one({"user_id": user_id, "channel_id": channel_id})
+            if join_req:
+                continue  # zayavka yuborgan -> o'tkazib yuboramiz
+            unsubscribed.append(ch)
+
+    # Kanallarni nomiga qarab saralaymiz (1-Kanal, 2-Kanal, ... kabi)
+    unsubscribed.sort(key=lambda x: x.get("name", ""))
+
+    # Tugmalarni yangi raqamlar bilan yasaymiz
+    kb_buttons = []
+    for idx, ch in enumerate(unsubscribed, start=1):
+        display_name = f"{idx}-Kanal"
+        kb_buttons.append(InlineKeyboardButton(display_name, url=ch["url"]))
+
+    # Ixtiyoriy kanallarni qo'shamiz (agar hech bo'lmaganda bitta majburiy kanalga obuna bo'lmasa)
+    if unsubscribed:  # faqat obuna bo'lmaganlar bo'lsa
+        for ch in optional:
+            kb_buttons.append(InlineKeyboardButton(ch["name"], url=ch["url"]))
+
+    random.shuffle(kb_buttons)
+
     kb = InlineKeyboardMarkup(row_width=1)
-    for btn in buttons: kb.add(btn)
+    for btn in kb_buttons:
+        kb.add(btn)
     kb.add(InlineKeyboardButton("Tekshirish ♻️", url=f"https://t.me/{BOT_USERNAME}?start={code}"))
     return kb
 
