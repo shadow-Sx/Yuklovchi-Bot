@@ -70,6 +70,7 @@ admin_state = {}
 admin_data = {}
 add_button_state = {}
 broadcast_state = {}
+last_prompt_msg = {}   # foydalanuvchining oxirgi majburiy obuna xabarini o'chirish uchun
 
 # ==================== ADMIN PANEL ====================
 def admin_panel():
@@ -1118,8 +1119,17 @@ def start(message):
             sent = bot.send_message(message.chat.id,
                 "📢 <b>Animeni yuklab olish uchun quyidagi kanallarga obuna bo'ling:</b>",
                 reply_markup=kb)
+        last_prompt_msg[uid] = sent.message_id
         functions.add_premium_reaction(bot, sent.chat.id, sent.message_id, "🔔")
         return
+
+    # Eski ogohlantirish xabarini o'chirish
+    if uid in last_prompt_msg:
+        try:
+            bot.delete_message(message.chat.id, last_prompt_msg[uid])
+        except:
+            pass
+        del last_prompt_msg[uid]
 
     if not check_required_bots(uid):
         settings = bot_settings_collection.find_one({"setting": "main_image"})
