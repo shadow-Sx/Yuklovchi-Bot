@@ -70,7 +70,8 @@ admin_state = {}
 admin_data = {}
 add_button_state = {}
 broadcast_state = {}
-last_prompt_msg = {}   # foydalanuvchining oxirgi majburiy obuna xabarini o'chirish uchun
+zayavka_state = {}
+last_prompt_msg = {}
 
 # ==================== ADMIN PANEL ====================
 def admin_panel():
@@ -166,13 +167,20 @@ def admin_buttons(message):
             f"Masalan: <code>https://t.me/{BOT_USERNAME}?start=abc123</code>\nyoki <code>abc123</code>")
 
     elif text == "Zayavka sozlamari":
-        bot.reply_to(message, "⚙️ Zayavka sozlamari hozircha mavjud emas. Bot avtomatik ravishda barcha zayavkalarni qayd etadi.")
+        zayavka_state[uid] = {"step": "waiting_channel_id"}
+        bot.reply_to(
+            message,
+            "Zayavka qabul qilinishi kerak bo'lgan kanal ID raqamini kiriting.\n\n"
+            "<b>Eslatma:</b> Bot kanalda admin bo'lishi va a'zolik so'rovlarini tasdiqlash huquqiga ega bo'lishi kerak.",
+            parse_mode="HTML"
+        )
 
     elif text == "🔙 Chiqish":
         admin_state.pop(uid, None)
         admin_data.pop(uid, None)
         add_button_state.pop(uid, None)
         broadcast_state.pop(uid, None)
+        zayavka_state.pop(uid, None)
         bot.send_message(uid, "<b>Admin paneldan chiqdingiz.</b>",
                          reply_markup=telebot.types.ReplyKeyboardRemove())
 
@@ -913,6 +921,99 @@ def handle_join_request(update: telebot.types.ChatJoinRequest):
     except Exception as e:
         print(f"Zayavka xatolik: {e}")
 
+# ==================== ZAYAVKA SOZLAMARI ====================
+@bot.message_handler(func=lambda m: zayavka_state.get(m.from_user.id, {}).get("step") == "waiting_channel_id")
+def zayavka_get_channel_id(message):
+    uid = message.from_user.id
+    try:
+        channel_id = int(message.text.strip())
+    except:
+        bot.reply_to(message, "❌ ID faqat raqamlardan iborat bo'lishi kerak (masalan: -1001234567890).")
+        return
+
+    try:
+        chat_info = bot.get_chat(channel_id)
+        bot_member = bot.get_chat_member(channel_id, bot.get_me().id)
+        if bot_member.status not in ["administrator", "creator"]:
+            bot.reply_to(message, "❌ Bot bu kanalda admin emas yoki tasdiqlash huquqiga ega emas.")
+            zayavka_state.pop(uid, None)
+            return
+    except Exception as e:
+        bot.reply_to(message, f"❌ Kanal topilmadi yoki bot ulana olmadi: {e}")
+        zayavka_state.pop(uid, None)
+        return
+
+    pending_count = join_requests_collection.count_documents({"channel_id": channel_id})
+
+    zayavka_state[uid] = {
+        "step": "waiting_count",
+        "channel_id": channel_id,
+        "channel_title": chat_info.title
+    }
+
+    bot.reply_to(
+        message,
+        f"📢 <b>{chat_info.title}</b> kanali uchun qancha odamni qabul qilmoqchisiz?\n\n"
+        f"👥 Mavjud zayavkalar soni: <b>{pending_count}</b> ta\n\n"
+        f"Iltimos, miqdorni kiriting (maksimum <b>{pending_count}</b>):",
+        parse_mode="HTML"
+    )
+
+@bot.message_handler(func=lambda m: zayavka_state.get(m.from_user.id, {}).get("step") == "waiting_count")
+def zayavka_approve(message):
+    uid = message.from_user.id
+    try:
+        count = int(message.text.strip())
+    except:
+        bot.reply_to(message, "❌ Iltimos, faqat raqam kiriting.")
+        return
+
+    data = zayavka_state[uid]
+    channel_id = data["channel_id"]
+    channel_title = data["channel_title"]
+
+    pending = list(join_requests_collection.find(
+        {"channel_id": channel_id}
+    ).sort("timestamp", 1).limit(count))
+
+    if not pending:
+        bot.reply_to(message, "⚠️ Bu kanalda kutilayotgan zayavka qolmagan.")
+        zayavka_state.pop(uid, None)
+        return
+
+    actual_count = len(pending)
+    status_msg = bot.reply_to(message, f"⏳ Zayavkalar qabul qilinmoqda... 0/{actual_count}")
+
+    approved = 0
+    for idx, req in enumerate(pending):
+        user_id = req["user_id"]
+        try:
+            bot.approve_chat_join_request(channel_id, user_id)
+            approved += 1
+            try:
+                send_ad(user_id)   # reklama yuborish
+            except:
+                pass
+            if (idx + 1) % 5 == 0 or (idx + 1) == actual_count:
+                try:
+                    bot.edit_message_text(
+                        f"⏳ Zayavkalar qabul qilinmoqda... {approved}/{actual_count}",
+                        status_msg.chat.id, status_msg.message_id
+                    )
+                except:
+                    pass
+            time.sleep(0.05)
+        except Exception as e:
+            print(f"Zayavka qabul qilishda xatolik (user {user_id}): {e}")
+
+    bot.edit_message_text(
+        f"✅ Zayavkalar qabul qilindi!\n\n"
+        f"📊 Jami: {approved}/{actual_count} ta\n"
+        f"📢 Kanal: {channel_title}",
+        status_msg.chat.id, status_msg.message_id
+    )
+    zayavka_state.pop(uid, None)
+
 # ==================== MAJBURIY OBUNA TEKSHIRISH ====================
 def check_required_subs(user_id):
     required = list(required_channels_collection.find({}))
@@ -1109,6 +1210,14 @@ def start(message):
         return
 
     if not check_required_subs(uid):
+        # Eski ogohlantirish xabarini o‘chirish
+        if uid in last_prompt_msg:
+            try:
+                bot.delete_message(message.chat.id, last_prompt_msg[uid])
+            except:
+                pass
+            del last_prompt_msg[uid]
+
         settings = bot_settings_collection.find_one({"setting": "main_image"})
         kb = get_required_keyboard(uid, code)
         if settings and settings.get("image_id"):
@@ -1123,7 +1232,7 @@ def start(message):
         functions.add_premium_reaction(bot, sent.chat.id, sent.message_id, "🔔")
         return
 
-    # Eski ogohlantirish xabarini o'chirish
+    # Agar endi hamma kanallarga obuna bo‘lingan bo‘lsa, oxirgi eski xabarni o‘chirish
     if uid in last_prompt_msg:
         try:
             bot.delete_message(message.chat.id, last_prompt_msg[uid])
