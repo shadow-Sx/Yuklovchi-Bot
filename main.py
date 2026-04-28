@@ -84,7 +84,8 @@ def admin_panel():
 def second_menu():
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
     markup.row(KeyboardButton("Referal"), KeyboardButton("Zayavka sozlamari"))
-    markup.row(KeyboardButton("Cantnetga tugma qoshish"), KeyboardButton("1-Bo'lim"))
+    markup.row(KeyboardButton("Cantnetga tugma qoshish"), KeyboardButton("Reklama"))
+    markup.row(KeyboardButton("1-Bo'lim"))
     return markup
 
 def required_menu():
@@ -119,7 +120,7 @@ def admin_start(message):
 @bot.message_handler(func=lambda m: m.from_user.id == ADMIN_ID and m.text in [
     "Cantent Qo'shish", "Majburi Obuna", "Habar Yuborish", "Referal",
     "Rasm Sozlash", "🔙 Chiqish", "2-Bo'lim", "1-Bo'lim",
-    "Cantnetga tugma qoshish", "Zayavka sozlamari"
+    "Cantnetga tugma qoshish", "Zayavka sozlamari", "Reklama"
 ])
 def admin_buttons(message):
     uid = message.from_user.id
@@ -175,6 +176,10 @@ def admin_buttons(message):
             parse_mode="HTML"
         )
 
+    elif text == "Reklama":
+        admin_state[uid] = "add_advertisement"
+        bot.reply_to(message, "📢 Reklama sifatida saqlash uchun xabarni forward qiling yoki yuboring.")
+
     elif text == "🔙 Chiqish":
         admin_state.pop(uid, None)
         admin_data.pop(uid, None)
@@ -183,6 +188,26 @@ def admin_buttons(message):
         zayavka_state.pop(uid, None)
         bot.send_message(uid, "<b>Admin paneldan chiqdingiz.</b>",
                          reply_markup=telebot.types.ReplyKeyboardRemove())
+
+# ==================== REKLAMA QABUL QILISH ====================
+@bot.message_handler(content_types=['text', 'photo', 'video', 'document', 'sticker', 'audio', 'voice', 'video_note'],
+                    func=lambda m: admin_state.get(m.from_user.id) == "add_advertisement")
+def receive_advertisement(message):
+    uid = message.from_user.id
+    ad_data = {
+        "chat_id": message.chat.id,
+        "message_id": message.message_id,
+        "impressions": 0,
+        "buttons": []
+    }
+    # Agar forward qilingan bo'lsa, asl manbani olish
+    if message.forward_from_chat:
+        ad_data["chat_id"] = message.forward_from_chat.id
+        ad_data["message_id"] = message.forward_from_message_id
+
+    ads_collection.insert_one(ad_data)
+    bot.reply_to(message, "✅ Reklama muvaffaqiyatli saqlandi!")
+    admin_state.pop(uid, None)
 
 # ==================== DELETE MAIN IMAGE ====================
 @bot.callback_query_handler(func=lambda c: c.data == "delete_main_image")
